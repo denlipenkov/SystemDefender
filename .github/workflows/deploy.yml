@@ -1,0 +1,50 @@
+# Этот workflow автоматически публикует игру на GitHub Pages
+# при каждом пуше в ветку dev.
+#
+# Что происходит:
+# 1. GitHub берёт папку src/ из ветки dev
+# 2. Публикует её как статический сайт
+# 3. Игра доступна по адресу: https://denlipenkov.github.io/SystemDefender
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - dev          # запускаем деплой только при пуше в dev
+  workflow_dispatch: # позволяет запустить деплой вручную из GitHub UI
+
+# Права необходимые для публикации на GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Если запущено несколько деплоев — ждём завершения предыдущего
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      # Публикуем папку src/ — там лежит index.html с игрой
+      - name: Upload game files
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: src/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
