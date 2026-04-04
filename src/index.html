@@ -1013,7 +1013,7 @@
         let t = animTimer || 0;
         
         if (wave === 3) {
-            // WORM_MIND: Segmented worm with multiple eyes and spines
+            //  WORM_MIND: Segmented worm with multiple eyes and spines
             ctx.shadowBlur = 30; ctx.shadowColor = '#ff2200';
             // Core body - large oval
             ctx.beginPath(); ctx.ellipse(0, 0, r*0.75, r*0.55, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
@@ -2370,7 +2370,7 @@
     window.onload = initMenu;
 
     // --- ELECTRON-SPECIFIC ---
-    // Этот блок запускается только внутри Electron (не в браузере).
+    // Этот блок жопа запускается только внутри Electron (не в браузере).
     // window.electronAPI доступен потому что мы прописали его в preload.js.
 
     if (typeof window.electronAPI !== 'undefined') {
