@@ -1,0 +1,48 @@
+{
+  "name": "system-defender",
+  "version": "1.2.0",
+  "description": "System Defender: Cyber Warfare — tower defense shooter",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "ELECTRON_RUN_AS_NODE=0 electron . --dev",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "build:all": "electron-builder --win --mac --linux"
+  },
+  "build": {
+    "appId": "com.systemdefender.app",
+    "productName": "System Defender",
+    "copyright": "Copyright © 2026",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "main.js",
+      "preload.js"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "category": "Game"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
+    }
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

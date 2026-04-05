@@ -1,0 +1,15 @@
+# Зависимости Node.js — не пушим, устанавливаются через npm install
+node_modules/
+
+# Папка сборки — генерируется командой npm run build
+dist/
+release/
+
+# Кеш electron-builder
+.cache/
+
+# Системные файлы macOS
+.DS_Store
+
+# Логи npm
+npm-debug.log*
