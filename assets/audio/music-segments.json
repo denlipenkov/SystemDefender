@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "singleTrack": true,
+  "audioFile": "track1.mp3",
+  "note": "Длинные фразы = реже смены. Подстройка: npm run analyze-music",
+  "windowSec": 0.75,
+  "hopSec": 0.25,
+  "deathFile": "track1.mp3",
+  "tracks": {},
+  "pool": {
+    "calm": [
+      {"file": "track1.mp3", "start": 0, "end": 42, "duration": 42, "gain": 1}
+    ],
+    "mid": [
+      {"file": "track1.mp3", "start": 42, "end": 84, "duration": 42, "gain": 1}
+    ],
+    "intense": [
+      {"file": "track1.mp3", "start": 84, "end": 126, "duration": 42, "gain": 1}
+    ]
+  }
+}
