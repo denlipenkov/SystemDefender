@@ -39,11 +39,19 @@ jobs:
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
-      # Публикуем папку src/ — там лежит index.html с игрой
+      # Собираем сайт: index.html из src/ + assets/ (аудио, графика) рядом
+      - name: Build static site
+        shell: bash
+        run: |
+          set -e
+          mkdir -p _site
+          cp -a src/. _site/
+          cp -a assets _site/assets
+
       - name: Upload game files
         uses: actions/upload-pages-artifact@v3
         with:
-          path: src/
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
