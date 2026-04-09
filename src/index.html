@@ -5569,6 +5569,7 @@
         deployNet(firstTarget) {
             // Найти всех ближайших врагов для захвата
             let captured = [firstTarget];
+            const capSet = new Set(captured);
             let allTargets = [...enemies];
             if (isBossActive && bossEntity && bossEntity.active) allTargets.push(bossEntity);
             
@@ -5577,12 +5578,13 @@
                 let last = captured[captured.length - 1];
                 let bestDist = Infinity; let next = null;
                 for (let t of allTargets) {
-                    if (!t.active || captured.includes(t)) continue;
+                    if (!t.active || capSet.has(t)) continue;
                     let d = Math.hypot(t.x - last.x, t.y - last.y);
                     if (d < 350 && d < bestDist) { bestDist = d; next = t; }
                 }
                 if (!next) break;
                 captured.push(next);
+                capSet.add(next);
             }
 
             // Создаём NetworkEffect с захваченными целями
@@ -5618,6 +5620,7 @@
     class NetworkEffect {
         constructor(capturedEnemies, duration, baseDmg, maxTargets) {
             this.captured = capturedEnemies; // массив ссылок на врагов
+            this.capturedSet = new Set(capturedEnemies.filter(Boolean));
             this.originX = capturedEnemies[0] ? capturedEnemies[0].x : 0;
             this.originY = capturedEnemies[0] ? capturedEnemies[0].y : 0;
             this.life = duration;
@@ -5626,6 +5629,7 @@
             this.maxTargets = maxTargets || capturedEnemies.length;
             this.active = true;
             this.dps = baseDmg / duration * 60; // DPS based on total damage / duration
+            this._acTick = 0;
         }
         update() {
             this.life--;
@@ -5638,8 +5642,9 @@
                 return;
             }
 
-            // AUTO-CAPTURE: continuously check for new enemies in the zone
-            if (this.captured.length < this.maxTargets) {
+            // AUTO-CAPTURE: реже (раз в 3 кадра), Set вместо includes
+            this._acTick++;
+            if (this.captured.length < this.maxTargets && this._acTick % 3 === 0) {
                 let centerX = 0, centerY = 0;
                 let aliveList = this.captured.filter(e => e && e.active !== false && e.hp !== undefined);
                 for (let e of aliveList) { centerX += e.x; centerY += e.y; }
@@ -5651,7 +5656,7 @@
                 if (isBossActive && bossEntity && bossEntity.active) allTargets.push(bossEntity);
                 let captureRadius = 350;
                 for (let t of allTargets) {
-                    if (!t.active || this.captured.includes(t) || t.hp === undefined) continue;
+                    if (!t.active || this.capturedSet.has(t) || t.hp === undefined) continue;
                     let inRange = Math.hypot(t.x - centerX, t.y - centerY) < captureRadius;
                     if (!inRange) {
                         for (let c of aliveList) {
@@ -5661,6 +5666,7 @@
                     if (inRange) {
                         t.netLocked = true;
                         this.captured.push(t);
+                        this.capturedSet.add(t);
                         createParticles(t.x, t.y, 8, GAME_THEME.magenta);
                         if (this.captured.length >= this.maxTargets) break;
                     }
@@ -5683,8 +5689,8 @@
                 // Урон пропорционально времени
                 let tickDmg = this.dps * dmgMult / 60;
                 e.hp -= tickDmg;
-                // Визуальные частицы
-                if (Math.random() < 0.08) createParticles(e.x + (Math.random()-0.5)*20, e.y + (Math.random()-0.5)*20, 1, GAME_THEME.magenta);
+                // Визуальные частицы (реже — меньше объектов частиц)
+                if (Math.random() < 0.025) createParticles(e.x + (Math.random()-0.5)*20, e.y + (Math.random()-0.5)*20, 1, GAME_THEME.magenta);
                 
                 if (e.hp <= 0 && e.active) {
                     e.active = false; e.netLocked = false;
@@ -5711,25 +5717,27 @@
             // NEON SPIDER WEB between all captured enemies
             ctx.shadowBlur = 12; ctx.shadowColor = GAME_THEME.magenta;
             
-            // Web threads from center to each captured enemy
+            // Web threads from center to each captured enemy (детерминированный «шум», кап сегментов)
             for (let e of alive) {
                 let d = Math.hypot(e.x - cx, e.y - cy);
+                const ej = Math.sin(e.x * 0.02 + e.y * 0.017 + this.life * 0.11);
+                const ej2 = Math.cos(e.x * 0.015 - this.life * 0.09);
                 ctx.strokeStyle = `rgba(255, 0, 255, ${0.25 + alpha * 0.15})`;
                 ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(cx, cy);
-                let midX = (cx + e.x) / 2 + (Math.random() - 0.5) * 8;
-                let midY = (cy + e.y) / 2 + (Math.random() - 0.5) * 8;
+                let midX = (cx + e.x) / 2 + ej * 4;
+                let midY = (cy + e.y) / 2 + ej2 * 4;
                 ctx.quadraticCurveTo(midX, midY, e.x, e.y);
                 ctx.stroke();
                 
-                let segments = Math.floor(d / 40);
+                let segments = Math.min(6, Math.max(1, Math.floor(d / 40)));
                 for (let s = 1; s <= segments; s++) {
                     let t = s / (segments + 1);
                     let px = cx + (e.x - cx) * t;
                     let py = cy + (e.y - cy) * t;
                     let perpX = -(e.y - cy) * 0.15;
                     let perpY = (e.x - cx) * 0.15;
-                    let threadLen = 15 + Math.random() * 10;
+                    let threadLen = 15 + Math.sin(this.life * 0.12 + s * 0.7 + e.x * 0.03) * 5;
                     ctx.strokeStyle = `rgba(200, 0, 255, ${0.12 + alpha * 0.08})`;
                     ctx.lineWidth = 0.5;
                     ctx.beginPath();
@@ -5758,21 +5766,33 @@
                 }
             }
             
-            // LIGHTNING between captured enemies
-            for (let i = 0; i < alive.length; i++) {
-                for (let j = i + 1; j < alive.length; j++) {
-                    let a = alive[i], b = alive[j];
-                    let d = Math.hypot(a.x - b.x, a.y - b.y);
-                    if (d > 500) continue;
+            // LIGHTNING between captured enemies — ближайшие пары, кап рёбер, ограниченный зигзаг
+            const MAX_LIGHTNING_EDGES = 14;
+            const ln = alive.length;
+            if (ln >= 2) {
+                const pairs = [];
+                for (let i = 0; i < ln; i++) {
+                    for (let j = i + 1; j < ln; j++) {
+                        let a = alive[i], b = alive[j];
+                        let d = Math.hypot(a.x - b.x, a.y - b.y);
+                        if (d <= 500) pairs.push({ a, b, d });
+                    }
+                }
+                pairs.sort((p, q) => p.d - q.d);
+                const edgeCount = Math.min(MAX_LIGHTNING_EDGES, pairs.length);
+                for (let pi = 0; pi < edgeCount; pi++) {
+                    let { a, b, d } = pairs[pi];
                     ctx.strokeStyle = `rgba(200, 100, 255, ${0.4 + alpha * 0.3})`;
                     ctx.lineWidth = 1.5;
                     ctx.shadowColor = GAME_THEME.violet; ctx.shadowBlur = 8;
                     ctx.beginPath(); ctx.moveTo(a.x, a.y);
-                    let segs = Math.max(3, Math.floor(d / 30));
+                    let segs = Math.min(6, Math.max(2, Math.floor(d / 35)));
                     for (let s = 1; s < segs; s++) {
                         let t = s / segs;
-                        let jx = a.x + (b.x - a.x) * t + (Math.random() - 0.5) * 18;
-                        let jy = a.y + (b.y - a.y) * t + (Math.random() - 0.5) * 18;
+                        const wobble = Math.sin(a.x * 0.01 + b.y * 0.012 + s * 2.1 + this.life * 0.2) * 9;
+                        const wobble2 = Math.cos(a.y * 0.011 - b.x * 0.01 + s * 1.7 + this.life * 0.17) * 9;
+                        let jx = a.x + (b.x - a.x) * t + wobble;
+                        let jy = a.y + (b.y - a.y) * t + wobble2;
                         ctx.lineTo(jx, jy);
                     }
                     ctx.lineTo(b.x, b.y); ctx.stroke();
@@ -8291,13 +8311,14 @@
         chainLightnings.forEach(c => c.draw());
         // Draw persistent network effects
         networkEffects.forEach(n => n.draw());
+        const paralyzeGlowPhase = performance.now() * 0.01;
         enemies.forEach(e => {
             e.draw();
-            // Draw paralysis glow
+            // Draw paralysis glow (один вызов времени на кадр)
             if (e.paralyzeTimer && e.paralyzeTimer > 0) {
                 ctx.save(); ctx.translate(e.x, e.y);
                 ctx.beginPath(); ctx.arc(0, 0, e.radius + 5, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(255,0,255,${0.4 + Math.sin(Date.now() * 0.01) * 0.2})`;
+                ctx.strokeStyle = `rgba(255,0,255,${0.4 + Math.sin(paralyzeGlowPhase) * 0.2})`;
                 ctx.lineWidth = 2; ctx.shadowBlur = 10; ctx.shadowColor = GAME_THEME.magenta; ctx.stroke();
                 ctx.shadowBlur = 0; ctx.restore();
             }
