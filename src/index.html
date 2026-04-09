@@ -43,7 +43,7 @@
 
             <div class="hud-right">
                 <div id="wave-display">СЕКТОР 1/12</div>
-                <div id="wave-status" style="font-size: 12px;">УГРОЗ: 0</div>
+                <div id="wave-status" class="wave-status wave-status--neutral">УГРОЗ: 0</div>
             </div>
         </div>
 
@@ -65,18 +65,18 @@
         </div>
 
         <div class="hud-bottom">
-            <div class="panel">
+            <div class="panel ui-tech-corners">
                 <div class="panel-title">СТАТУС МОДУЛЯ</div>
                 <div class="item" id="stat-dmg">Урон: 0</div>
                 <div class="item" id="stat-spd">Скорость: 0</div>
                 <div class="item" id="stat-proj">Снаряды: 0</div>
             </div>
-            <div class="panel" id="ability-panel">
+            <div class="panel ui-tech-corners" id="ability-panel">
                 <div class="panel-title">УМЕНИЯ КОРАБЛЯ</div>
-                <div class="item"><span class="key" style="width:auto;padding:0 4px;">SPC</span> <span id="ability-space-name">—</span> <span id="cd-space" class="hud-cd-txt hud-cd-ready"></span></div>
-                <div class="item"><span class="key" style="width:auto;padding:0 4px;">SHF</span> <span id="ability-shift-name">—</span> <span id="cd-shift" class="hud-cd-txt hud-cd-ready"></span></div>
-                <div id="boost-bar-wrap" style="display:none;margin-top:6px;">
-                    <div class="hud-label-muted" style="font-size:10px;margin-bottom:2px;">ТЯГА:</div>
+                <div class="item"><span class="key key--wide">SPC</span> <span id="ability-space-name">—</span> <span id="cd-space" class="hud-cd-txt hud-cd-ready"></span></div>
+                <div class="item"><span class="key key--wide">SHF</span> <span id="ability-shift-name">—</span> <span id="cd-shift" class="hud-cd-txt hud-cd-ready"></span></div>
+                <div id="boost-bar-wrap" class="hud-boost-wrap hidden">
+                    <div class="hud-label-muted hud-boost-label">ТЯГА:</div>
                     <div class="boost-bar-track">
                         <div id="boost-bar-fill" class="boost-bar-fill" style="width:100%;"></div>
                     </div>
@@ -104,28 +104,28 @@
 
     <!-- БРИФИНГ ПЕРЕД УРОВНЕМ -->
     <div id="briefing-screen" class="screen screen-menu-bg hidden" aria-hidden="true">
-        <div class="upgrade-screen-frame" style="max-width: 820px;">
+        <div class="upgrade-screen-frame ui-glass-panel ui-tech-corners briefing-screen-frame">
             <h1 class="upgrade-screen-heading" id="briefing-title">ЗАДАЧА</h1>
-            <div class="screen-muted-text" id="briefing-desc" style="margin-top: 10px; line-height: 1.55;"></div>
+            <div class="screen-muted-text briefing-desc-block" id="briefing-desc"></div>
             <button type="button" id="briefing-btn-start" class="upgrade-next-btn" onclick="confirmBriefing()">НАЧАТЬ</button>
         </div>
     </div>
 
     <div id="upgrade-screen" class="screen screen-menu-bg upgrade-screen-root hidden">
-        <div class="upgrade-screen-frame">
+        <div class="upgrade-screen-frame ui-glass-panel ui-tech-corners">
             <h1 class="upgrade-screen-heading">СЕКТОР ПРОЙДЕН</h1>
             <div id="upgrade-bits-display" class="upgrade-bits-line">БИТЫ: 0</div>
 
             <div class="upgrade-3col" aria-label="Итоги сектора">
-                <div class="upgrade-col">
+                <div class="upgrade-col ui-tech-corners">
                     <div class="upgrade-section-title">Продажа поверапов <span class="upgrade-tag upgrade-tag--bits">за биты</span></div>
                     <div id="powerup-sell"></div>
                 </div>
-                <div class="upgrade-col">
+                <div class="upgrade-col ui-tech-corners">
                     <div class="upgrade-section-title">Системное обновление <span class="upgrade-tag" id="free-upgrade-tag">бесплатно · 1 выбор</span></div>
                     <div class="upgrade-container" id="upgrade-cards-container"></div>
                 </div>
-                <div class="upgrade-col">
+                <div class="upgrade-col ui-tech-corners">
                     <div class="upgrade-section-title">Прокачка умений <span class="upgrade-tag upgrade-tag--bits">за биты</span></div>
                     <div id="ability-upgrades-container" class="ability-upgrades-wrap"></div>
                 </div>
@@ -858,9 +858,9 @@
         });
         const isBoss = id.startsWith('boss_');
         panel.innerHTML = `
-            <div class="codex-detail-preview"><canvas id="codex-detail-canvas" width="240" height="240" style="width:240px;height:240px;border-radius:6px;margin:0 auto;display:block;"></canvas></div>
-            <div class="codex-detail-name" style="text-align:center;">${d.name}</div>
-            <div class="codex-detail-role" style="text-align:center;">${d.role}</div>
+            <div class="codex-detail-preview"><canvas id="codex-detail-canvas" class="codex-detail-canvas" width="240" height="240"></canvas></div>
+            <div class="codex-detail-name codex-detail-name--center">${d.name}</div>
+            <div class="codex-detail-role codex-detail-role--center">${d.role}</div>
             <div class="codex-stats">
                 <div>HP: <span>${d.hp}</span></div>
                 <div>Урон: <span>${d.dmg}</span></div>
@@ -6403,12 +6403,12 @@
             const c = inv[t] || 0;
             if (c <= 0) return '';
             const p = prices[t] || 8;
-            return `<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
-                      <div style="display:flex;gap:10px;align-items:center;">
-                        <div style="width:26px;height:26px;border-radius:8px;border:2px solid hsla(${hue},95%,70%,0.9);box-shadow:0 0 14px hsla(${hue},95%,70%,0.20);background:rgba(10,14,26,0.95);display:flex;align-items:center;justify-content:center;color:hsla(${hue},95%,72%,0.95);font-family:'Share Tech Mono', monospace;">${label}</div>
-                        <div style="color:rgba(220,235,250,0.92);font-size:12px;">${t.toUpperCase()} × <b>${c}</b> · <span style="color:hsla(${hue},95%,70%,0.95)">${p}b</span></div>
+            return `<div class="upgrade-sell-row" style="--sell-accent:hsla(${hue},85%,62%,0.98);">
+                      <div class="upgrade-sell-main">
+                        <div class="upgrade-sell-icon" aria-hidden="true">${label}</div>
+                        <div class="upgrade-sell-meta">${t.toUpperCase()} × <b>${c}</b> · <span class="upgrade-sell-price">${p}b</span></div>
                       </div>
-                      <button type="button" class="upgrade-btn" onclick="sellPowerup('${t}')" style="padding:6px 10px;">ПРОДАТЬ 1</button>
+                      <button type="button" class="upgrade-btn" onclick="sellPowerup('${t}')">ПРОДАТЬ 1</button>
                     </div>`;
         };
         if (sellEl) {
@@ -6418,7 +6418,7 @@
                 row('weapon','✶','28') +
                 row('boost','»','55') +
                 row('magnet','⧉','285');
-            sellEl.innerHTML = rows || `<div style="color:rgba(160,190,220,0.72);font-size:12px;padding:6px 0;">Нет поверапов для продажи.</div>`;
+            sellEl.innerHTML = rows || `<div class="upgrade-sell-empty">Нет поверапов для продажи.</div>`;
         }
 
         // Tag: how many free picks are available
@@ -6429,10 +6429,10 @@
             let card = document.createElement('div');
             card.className = 'upgrade-card';
             card.dataset.statId = upg.id;
-            card.style.borderColor = upg.color;
+            card.style.setProperty('--card-accent', upg.color);
             if (pickedFreeStatIds.includes(upg.id)) card.classList.add('upgrade-card--picked');
             else if (freePicksRemaining <= 0) card.classList.add('upgrade-card--locked');
-            card.innerHTML = `<h2 style="color:${upg.color};">${upg.title}</h2><p>${upg.desc}</p>`;
+            card.innerHTML = `<h2>${upg.title}</h2><p>${upg.desc}</p>`;
             card.onclick = () => {
                 if (pickedFreeStatId && upg.id !== pickedFreeStatId) return;
                 if (card.classList.contains('upgrade-card--locked')) return;
@@ -6445,8 +6445,8 @@
         abilities.forEach(upg => {
             let item = document.createElement('div'); item.className = 'ability-upgrade-item';
             const canAfford = bits >= upg.bitsCost; if (!canAfford) item.classList.add('cant-afford');
-            item.style.borderColor = canAfford ? upg.color : '#555';
-            item.innerHTML = `<div class="ability-upgrade-left"><div class="ability-upgrade-title" style="color:${upg.color};">${upg.title}</div><div class="ability-upgrade-desc">${upg.desc}</div><div class="ability-upgrade-level">Уровень: ${upg.level}</div></div><div class="ability-upgrade-cost">${upg.bitsCost} БИТ</div>`;
+            item.style.setProperty('--ability-accent', canAfford ? upg.color : 'rgba(95, 100, 115, 0.95)');
+            item.innerHTML = `<div class="ability-upgrade-left"><div class="ability-upgrade-title">${upg.title}</div><div class="ability-upgrade-desc">${upg.desc}</div><div class="ability-upgrade-level">Уровень: ${upg.level}</div></div><div class="ability-upgrade-cost">${upg.bitsCost} БИТ</div>`;
             item.onclick = () => { if (!canAfford) { floatingTexts.push(new FloatingText(player.x, player.y, `НУЖНО ${upg.bitsCost} БИТ`, "#f00")); return; } applyAbilityUpgrade(upg.id, upg.bitsCost); };
             abContainer.appendChild(item);
         });
@@ -6623,7 +6623,7 @@
 
     function buildPowerupBar(name, timer, max, color) {
         let pct = (timer / max * 100).toFixed(1);
-        return `<div class="powerup-item" style="color: ${color};"><div class="powerup-name">${name}</div><div class="powerup-bar-bg"><div class="powerup-bar" style="width: ${pct}%;"></div></div></div>`;
+        return `<div class="powerup-item" style="--powerup-accent:${color};--powerup-pct:${pct}%;"><div class="powerup-name">${name}</div><div class="powerup-bar-bg"><div class="powerup-bar"></div></div></div>`;
     }
 
     function updateUI() {
@@ -6642,11 +6642,10 @@
             const chip = (label, key, count, hue) => {
                 const c = Math.max(0, Math.floor(count || 0));
                 const empty = c <= 0;
-                const bc = empty ? 'rgba(160,190,220,0.18)' : `hsla(${hue},95%,70%,0.9)`;
-                const sh = empty ? 'none' : `0 0 14px hsla(${hue},95%,70%,0.22)`;
-                return `<div class="hud-inv-chip ${empty ? 'hud-inv-chip--empty' : ''}" style="border-color: ${bc}; box-shadow: ${sh};">
+                const hueAttr = empty ? '' : ` style="--inv-h:${hue};"`;
+                return `<div class="hud-inv-chip${empty ? ' hud-inv-chip--empty' : ''}"${hueAttr}>
                           <span class="hud-inv-key">${key}</span>
-                          <span class="hud-inv-ico" style="color: hsla(${hue},95%,72%,0.95);">${label}</span>
+                          <span class="hud-inv-ico">${label}</span>
                           <span class="hud-inv-count">${c}</span>
                         </div>`;
             };
@@ -6677,17 +6676,19 @@
         document.getElementById('bits-count').innerText = bits; document.getElementById('wave-display').innerText = `СЕКТОР: ${Math.min(currentWave, MAX_WAVES)} / ${MAX_WAVES}`;
         
         const waveStatusEl = document.getElementById('wave-status');
+        waveStatusEl.classList.remove('wave-status--boss', 'wave-status--defense', 'wave-status--neutral');
         if (isBossActive) {
-            waveStatusEl.innerText = `КРИТИЧЕСКАЯ УГРОЗА!`; waveStatusEl.style.color = '#ff5a3c';
+            waveStatusEl.innerText = `КРИТИЧЕСКАЯ УГРОЗА!`;
+            waveStatusEl.classList.add('wave-status--boss');
             if (bossEntity) document.getElementById('boss-hp-bar').style.width = Math.max(0, (bossEntity.hp / bossEntity.maxHp) * 100) + '%';
         } else if (isDefenseActive) {
             const aliveG = (defenseGenerators || []).filter(g => g && g.active && g.hp > 0).length;
             const coreHp = defenseCore ? Math.max(0, Math.floor(defenseCore.hp)) : 0;
             waveStatusEl.innerText = `ЗАЩИТА ЯДРА · ГЕН: ${aliveG} · ЯДРО: ${coreHp}`;
-            waveStatusEl.style.color = '#00E5FF';
+            waveStatusEl.classList.add('wave-status--defense');
         } else {
             waveStatusEl.innerText = isUpgrading ? `СИНХРОНИЗАЦИЯ...` : `УГРОЗ ОСТАЛОСЬ: ${enemiesToSpawn - enemiesSpawned + enemies.length}`;
-            waveStatusEl.style.color = 'rgba(170, 190, 210, 0.88)';
+            waveStatusEl.classList.add('wave-status--neutral');
         }
 
         document.getElementById('stat-dmg').innerText = `Урон: ${player.stats.dmg.toFixed(1)}`;
@@ -6709,10 +6710,10 @@
         const boostWrap = document.getElementById('boost-bar-wrap');
         const boostFill = document.getElementById('boost-bar-fill');
         if (player.classId === 2 || player.classId === 3) {
-            boostWrap.style.display = 'block';
+            boostWrap.classList.remove('hidden');
             boostFill.style.width = (player.boostFuel * 100) + '%';
             boostFill.classList.toggle('boost-bar-fill--low', player.boostFuel <= 0.3);
-        } else { boostWrap.style.display = 'none'; }
+        } else { boostWrap.classList.add('hidden'); }
 
         // Legacy protocol CDs are no longer used (inventory system).
         const setProtoCd = (id) => {
