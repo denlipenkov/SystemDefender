@@ -19,8 +19,16 @@
     <div class="logo-skip-hint">Любая клавиша или клик — пропуск</div>
 </div>
 <div id="game-container">
-    <canvas id="gameCanvas"></canvas>
+    <div id="game-view-mount" class="game-view-mount" aria-hidden="true"></div>
     <div id="ui-transition" aria-hidden="true"></div>
+
+    <div id="game-modal-overlay" class="game-modal-overlay hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="game-modal-title">
+        <div class="game-modal ui-tech-corners">
+            <h2 class="game-modal-title" id="game-modal-title"></h2>
+            <div class="game-modal-body" id="game-modal-body"></div>
+            <div class="game-modal-actions" id="game-modal-actions"></div>
+        </div>
+    </div>
 
     <div class="ui-layer" id="ui-layer" style="display: none;">
         <div class="hud-top">
@@ -87,19 +95,88 @@
 
     <!-- МЕНЮ ПАУЗЫ -->
     <div id="pause-screen" class="screen screen-menu-bg hidden">
-        <h1>ПАУЗА</h1>
-        <div class="pause-audio-grid">
-            <div class="slider-container pause-vol-row">
-                <label for="pause-music-vol">МУЗЫКА <span id="pause-music-display" class="vol-pct">50%</span></label>
-                <input type="range" id="pause-music-vol" min="0" max="100" value="50" oninput="updateMusicVolume(this.value)">
+        <div class="pause-shell ui-glass-panel ui-tech-corners">
+            <div id="pause-view-main" class="pause-view">
+                <h1 class="pause-title">ПАУЗА</h1>
+                <nav class="pause-main-actions" aria-label="Пауза">
+                    <button type="button" id="pause-btn-open-settings" class="menu-btn" onclick="openPauseSettingsHub()">НАСТРОЙКИ</button>
+                    <button type="button" id="pause-btn-resume" class="menu-btn menu-btn--primary" onclick="togglePause()">ВОЗОБНОВИТЬ</button>
+                    <button type="button" id="pause-btn-menu" class="menu-btn menu-btn--quit" onclick="resetToMenu()">В МЕНЮ</button>
+                </nav>
+                <p class="pause-hint">ESC — возобновить</p>
             </div>
-            <div class="slider-container pause-vol-row">
-                <label for="pause-sfx-vol">ЭФФЕКТЫ <span id="pause-sfx-display" class="vol-pct">50%</span></label>
-                <input type="range" id="pause-sfx-vol" min="0" max="100" value="50" oninput="updateSfxVolume(this.value)">
+
+            <div id="pause-settings-root" class="pause-view hidden">
+                <div id="pause-view-hub" class="pause-settings-view">
+                    <div class="pause-settings-title">НАСТРОЙКИ</div>
+                    <p class="pause-settings-lead">Разделы</p>
+                    <div class="settings-hub-actions pause-settings-hub">
+                        <button type="button" class="menu-btn" id="pause-open-audio" onclick="openPauseSettingsSection('audio')">ЗВУК</button>
+                        <button type="button" class="menu-btn" id="pause-open-graphics" onclick="openPauseSettingsSection('graphics')">ГРАФИКА</button>
+                        <button type="button" class="menu-btn" id="pause-open-controls" onclick="openPauseSettingsSection('controls')">УПРАВЛЕНИЕ</button>
+                    </div>
+                    <button type="button" class="menu-btn" id="pause-back-from-hub" onclick="closePauseSettings()">НАЗАД</button>
+                </div>
+
+                <div id="pause-view-audio" class="pause-settings-view hidden">
+                    <div class="pause-settings-title">ЗВУК</div>
+                    <section class="settings-block settings-block--audio">
+                        <div class="settings-audio-rows">
+                            <div class="slider-container settings-vol-row">
+                                <label for="pause-music-vol">Музыка <span id="pause-music-display" class="vol-pct">50%</span></label>
+                                <input type="range" class="ui-range-input" id="pause-music-vol" min="0" max="100" value="50" oninput="updateMusicVolume(this.value)">
+                            </div>
+                            <div class="slider-container settings-vol-row">
+                                <label for="pause-sfx-vol">Эффекты <span id="pause-sfx-display" class="vol-pct">50%</span></label>
+                                <input type="range" class="ui-range-input" id="pause-sfx-vol" min="0" max="100" value="50" oninput="updateSfxVolume(this.value)">
+                            </div>
+                        </div>
+                    </section>
+                    <div class="pause-settings-actions">
+                        <button type="button" class="menu-btn" onclick="openPauseSettingsSection('hub')">НАЗАД</button>
+                    </div>
+                </div>
+
+                <div id="pause-view-graphics" class="pause-settings-view hidden">
+                    <div class="pause-settings-title">ГРАФИКА</div>
+                    <section class="settings-block">
+                        <h3 class="settings-block-title"><span class="settings-block-kicker">◎</span> Режим окна</h3>
+                        <p class="menu-panel-text pause-settings-note">Полный экран — эксклюзивный режим. Без рамки — на весь рабочий стол. В окне — выбранное разрешение.</p>
+                        <div class="settings-panel settings-panel--nested graphics-mode-radios">
+                            <label class="scheme-option"><input type="radio" name="pause-graphics-window-mode" value="fullscreen" onchange="mirrorGraphicsModeRadios(this.value)"> Полный экран</label>
+                            <label class="scheme-option"><input type="radio" name="pause-graphics-window-mode" value="borderless" onchange="mirrorGraphicsModeRadios(this.value)"> Окно без рамки</label>
+                            <label class="scheme-option"><input type="radio" name="pause-graphics-window-mode" value="windowed" onchange="mirrorGraphicsModeRadios(this.value)"> В окне</label>
+                        </div>
+                    </section>
+                    <section class="settings-block">
+                        <h3 class="settings-block-title"><span class="settings-block-kicker">◇</span> Разрешение (окно)</h3>
+                        <div class="settings-panel settings-panel--nested">
+                            <select id="pause-graphics-resolution-select" class="graphics-resolution-select" aria-label="Разрешение окна" onchange="mirrorGraphicsResolutionSelect(this)"></select>
+                        </div>
+                    </section>
+                    <div class="pause-settings-actions">
+                        <button type="button" class="menu-btn" id="pause-graphics-apply-btn" onclick="applyGraphicsFromUi()">ПРИМЕНИТЬ</button>
+                        <button type="button" class="menu-btn" onclick="openPauseSettingsSection('hub')">НАЗАД</button>
+                    </div>
+                </div>
+
+                <div id="pause-view-controls" class="pause-settings-view hidden">
+                    <div class="pause-settings-title">УПРАВЛЕНИЕ</div>
+                    <section class="settings-block settings-block--control">
+                        <div class="settings-panel settings-panel--nested">
+                            <div class="control-scheme-row">
+                                <label class="scheme-option"><input type="radio" name="pause-control-scheme" value="keyboard" checked onchange="saveControlScheme(this.value)"> Клавиатура + мышь</label>
+                                <label class="scheme-option"><input type="radio" name="pause-control-scheme" value="gamepad" onchange="saveControlScheme(this.value)"> Геймпад</label>
+                            </div>
+                        </div>
+                        <p class="pause-settings-note menu-panel-text">Полная схема клавиш и геймпада — в главном меню, раздел «Настройки → Управление».</p>
+                    </section>
+                    <div class="pause-settings-actions">
+                        <button type="button" class="menu-btn" onclick="openPauseSettingsSection('hub')">НАЗАД</button>
+                    </div>
+                </div>
             </div>
         </div>
-        <button type="button" id="pause-btn-resume" onclick="togglePause()">ВОЗОБНОВИТЬ [ESC]</button>
-        <button type="button" id="pause-btn-menu" class="btn-danger" onclick="resetToMenu()">В МЕНЮ</button>
     </div>
 
     <!-- БРИФИНГ ПЕРЕД УРОВНЕМ -->
@@ -163,6 +240,7 @@
                         <button type="button" class="menu-btn" id="menu-btn-continue" onclick="openMenuPanel('continue')">ПРОДОЛЖИТЬ</button>
                         <button type="button" class="menu-btn" id="menu-btn-settings" onclick="openMenuPanel('settings')">НАСТРОЙКИ</button>
                         <button type="button" class="menu-btn" id="menu-btn-codex" onclick="openMenuPanel('codex')">БАЗА УГРОЗ</button>
+                        <button type="button" class="menu-btn menu-btn--quit" id="menu-btn-quit" onclick="quitApplication()">ВЫХОД</button>
                     </nav>
 
                     <div id="start-control-summary" class="start-control-summary">
@@ -229,6 +307,7 @@
                                     <button type="button" class="menu-btn" id="settings-open-audio" onclick="openSettingsSection('audio')">ЗВУК</button>
                                     <button type="button" class="menu-btn" id="settings-open-controls" onclick="openSettingsSection('controls')">УПРАВЛЕНИЕ</button>
                                     <button type="button" class="menu-btn" id="settings-open-difficulty" onclick="openSettingsSection('difficulty')">СЛОЖНОСТЬ</button>
+                                    <button type="button" class="menu-btn" id="settings-open-graphics" onclick="openSettingsSection('graphics')">ГРАФИКА</button>
                                     <button type="button" class="menu-btn btn-danger" id="settings-open-progress" onclick="openSettingsSection('progress')">СБРОС ПРОГРЕССА</button>
                                 </div>
                                 <div class="continue-actions">
@@ -242,11 +321,11 @@
                                     <div class="settings-audio-rows">
                                         <div class="slider-container settings-vol-row">
                                             <label for="menu-music-vol">Музыка <span id="menu-music-display" class="vol-pct">50%</span></label>
-                                            <input type="range" id="menu-music-vol" min="0" max="100" value="50" oninput="updateMusicVolume(this.value)">
+                                            <input type="range" class="ui-range-input" id="menu-music-vol" min="0" max="100" value="50" oninput="updateMusicVolume(this.value)">
                                         </div>
                                         <div class="slider-container settings-vol-row">
                                             <label for="menu-sfx-vol">Эффекты <span id="menu-sfx-display" class="vol-pct">50%</span></label>
-                                            <input type="range" id="menu-sfx-vol" min="0" max="100" value="50" oninput="updateSfxVolume(this.value)">
+                                            <input type="range" class="ui-range-input" id="menu-sfx-vol" min="0" max="100" value="50" oninput="updateSfxVolume(this.value)">
                                         </div>
                                     </div>
                                 </section>
@@ -260,22 +339,25 @@
                                 <section class="settings-block">
                                     <h3 class="settings-block-title"><span class="settings-block-kicker">◎</span> Сложность</h3>
                                     <p class="menu-panel-text" style="margin-bottom:12px;">Меняется только из главного меню. Текущий прогресс кампании не сбрасывается: новые параметры применяются к дальнейшим секторам и дропу.</p>
-                                    <div class="difficulty-picker settings-panel settings-panel--nested">
+                                    <div class="difficulty-picker settings-panel settings-panel--nested difficulty-picker--settings">
                                         <div class="difficulty-picker__list" role="radiogroup" aria-label="Сложность">
                                             <label class="scheme-option"><input type="radio" name="game-difficulty" value="easy" onchange="setGameDifficultyFromUi('easy')"> Лёгкая</label>
                                             <label class="scheme-option"><input type="radio" name="game-difficulty" value="normal" onchange="setGameDifficultyFromUi('normal')"> Нормальная</label>
                                             <label class="scheme-option"><input type="radio" name="game-difficulty" value="hardcore" onchange="setGameDifficultyFromUi('hardcore')"> Хардкор</label>
                                         </div>
-                                        <div class="difficulty-picker__detail" id="difficulty-detail-settings">
+                                        <div class="difficulty-picker__detail difficulty-picker__detail--with-onelife" id="difficulty-detail-settings">
                                             <div class="difficulty-picker__detail-title" id="difficulty-detail-settings-title">Нормальная</div>
                                             <p class="difficulty-picker__detail-text" id="difficulty-detail-settings-text"></p>
+                                            <div class="onelife-corner">
+                                                <div class="onelife-hover">
+                                                    <input type="checkbox" id="settings-one-life" class="onelife-input" onchange="onOneLifeSettingChange(this)" aria-describedby="onelife-tip-text">
+                                                    <label for="settings-one-life" class="onelife-chip" title="Одна жизнь"><span class="onelife-chip-mark" aria-hidden="true"></span></label>
+                                                    <div class="onelife-popover" id="onelife-tip-text" role="tooltip">
+                                                        Режим «одна жизнь»: любая гибель модуля стирает прогресс. Сохранения только после 2-го и 4-го боссов (волны 8 и 16), чтобы можно было продолжить после перерыва; при смерти сейв обнуляется.
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="settings-one-life-block">
-                                        <label class="scheme-option scheme-option--checkbox">
-                                            <input type="checkbox" id="settings-one-life" onchange="onOneLifeSettingChange(this)"> Одна жизнь
-                                        </label>
-                                        <p class="difficulty-blurb">Любая гибель модуля стирает прогресс. Сохранения только после 2-го и 4-го боссов (середина модуля), чтобы продолжить после перерыва; при смерти сейв обнуляется.</p>
                                     </div>
                                 </section>
                                 <div class="continue-actions settings-sub-actions">
@@ -354,6 +436,29 @@
                                 </div>
                             </div>
 
+                            <div id="settings-view-graphics" class="settings-view hidden">
+                                <section class="settings-block">
+                                    <h3 class="settings-block-title"><span class="settings-block-kicker">◎</span> Режим окна</h3>
+                                    <p class="menu-panel-text" style="margin-bottom:10px;">Полный экран — эксклюзивный режим. Без рамки — на весь рабочий стол в окне. В окне — заданное разрешение.</p>
+                                    <div class="settings-panel settings-panel--nested graphics-mode-radios">
+                                        <label class="scheme-option"><input type="radio" name="graphics-window-mode" value="fullscreen" onchange="mirrorGraphicsModeRadios(this.value)"> Полный экран</label>
+                                        <label class="scheme-option"><input type="radio" name="graphics-window-mode" value="borderless" onchange="mirrorGraphicsModeRadios(this.value)"> Окно без рамки (на весь экран)</label>
+                                        <label class="scheme-option"><input type="radio" name="graphics-window-mode" value="windowed" onchange="mirrorGraphicsModeRadios(this.value)"> В окне</label>
+                                    </div>
+                                </section>
+                                <section class="settings-block">
+                                    <h3 class="settings-block-title"><span class="settings-block-kicker">◇</span> Разрешение (только «В окне»)</h3>
+                                    <div class="settings-panel settings-panel--nested">
+                                        <select id="graphics-resolution-select" class="graphics-resolution-select" aria-label="Разрешение окна" onchange="mirrorGraphicsResolutionSelect(this)"></select>
+                                    </div>
+                                </section>
+                                <div class="continue-actions settings-sub-actions">
+                                    <button type="button" class="menu-btn" id="graphics-apply-btn" onclick="applyGraphicsFromUi()">ПРИМЕНИТЬ</button>
+                                    <button type="button" class="menu-btn" id="settings-back-graphics" onclick="openSettingsSection('hub')">НАЗАД</button>
+                                    <button type="button" class="menu-btn" onclick="closeMenuPanel()">ЗАКРЫТЬ</button>
+                                </div>
+                            </div>
+
                             <div id="settings-view-progress" class="settings-view hidden">
                                 <section class="settings-block settings-block--danger">
                                     <h3 class="settings-block-title"><span class="settings-block-kicker">!</span> Сброс</h3>
@@ -369,15 +474,17 @@
                     </div>
 
                     <div class="menu-panel hidden" id="menu-panel-codex">
-                        <div class="menu-panel-title">БАЗА УГРОЗ</div>
-                        <div class="menu-panel-body">
-                            <p class="codex-lead">Записи открываются при встрече с угрозой в бою. Секторные боссы — после появления.</p>
-                            <div class="codex-container">
-                                <div class="codex-left" id="codex-list-container"></div>
-                                <div class="codex-right" id="codex-detail-panel"><div class="codex-placeholder">Выберите угрозу из списка слева</div></div>
-                            </div>
-                            <div class="continue-actions">
-                                <button type="button" class="menu-btn" onclick="closeMenuPanel()">ЗАКРЫТЬ</button>
+                        <div class="codex-panel-frame ui-tech-corners">
+                            <div class="menu-panel-title codex-panel-title">БАЗА УГРОЗ</div>
+                            <div class="menu-panel-body">
+                                <p class="codex-lead">Записи открываются при встрече с угрозой в бою. Секторные боссы — после появления.</p>
+                                <div class="codex-container">
+                                    <div class="codex-left" id="codex-list-container"></div>
+                                    <div class="codex-right" id="codex-detail-panel"><div class="codex-placeholder">Выберите угрозу из списка слева</div></div>
+                                </div>
+                                <div class="continue-actions">
+                                    <button type="button" class="menu-btn" onclick="closeMenuPanel()">ЗАКРЫТЬ</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -431,6 +538,181 @@
     const BGM_TARGET_GAIN = {
         menu: 0.3, upgrade: 0.4, combat_light: 0.52, combat_heavy: 0.62, boss: 0.72, victory: 0.48, defeat: 0.36
     };
+
+    function gameModalClose() {
+        const ov = document.getElementById('game-modal-overlay');
+        if (!ov) return;
+        ov.classList.add('hidden');
+        ov.setAttribute('aria-hidden', 'true');
+        const act = document.getElementById('game-modal-actions');
+        const body = document.getElementById('game-modal-body');
+        if (act) act.innerHTML = '';
+        if (body) body.innerHTML = '';
+    }
+    function gameModalShow(opts) {
+        const { title, message, html, confirmText, cancelText, showCancel } = opts;
+        return new Promise((resolve) => {
+            const ov = document.getElementById('game-modal-overlay');
+            if (!ov) { resolve(false); return; }
+            const titleEl = document.getElementById('game-modal-title');
+            const bodyEl = document.getElementById('game-modal-body');
+            const actEl = document.getElementById('game-modal-actions');
+            titleEl.textContent = title || '';
+            bodyEl.innerHTML = '';
+            if (html) bodyEl.innerHTML = html;
+            else {
+                const p = document.createElement('p');
+                p.className = 'game-modal-p';
+                p.style.whiteSpace = 'pre-wrap';
+                p.textContent = message || '';
+                bodyEl.appendChild(p);
+            }
+            const okT = confirmText || 'OK';
+            const cancelT = cancelText || 'ОТМЕНА';
+            actEl.innerHTML = '';
+            let finished = false;
+            const finish = (val) => {
+                if (finished) return;
+                finished = true;
+                document.removeEventListener('keydown', onKey);
+                ov.removeEventListener('click', onBackdrop);
+                gameModalClose();
+                resolve(val);
+            };
+            const onKey = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    finish(showCancel ? false : true);
+                }
+            };
+            const onBackdrop = (e) => {
+                if (e.target === ov) finish(false);
+            };
+            document.addEventListener('keydown', onKey);
+            ov.addEventListener('click', onBackdrop);
+            if (showCancel) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'menu-btn';
+                b.textContent = cancelT;
+                b.onclick = () => finish(false);
+                actEl.appendChild(b);
+            }
+            const okBtn = document.createElement('button');
+            okBtn.type = 'button';
+            okBtn.className = 'menu-btn game-modal-btn-ok';
+            okBtn.textContent = okT;
+            okBtn.onclick = () => finish(true);
+            actEl.appendChild(okBtn);
+            ov.classList.remove('hidden');
+            ov.setAttribute('aria-hidden', 'false');
+            setTimeout(() => okBtn.focus(), 30);
+        });
+    }
+    function gameConfirm(message, title, o) {
+        o = o || {};
+        return gameModalShow({
+            title: title || 'ПОДТВЕРЖДЕНИЕ',
+            message,
+            showCancel: true,
+            confirmText: o.ok || 'ДА',
+            cancelText: o.cancel || 'НЕТ'
+        });
+    }
+    function gameAlert(message, title) {
+        return gameModalShow({
+            title: title || 'СООБЩЕНИЕ',
+            message,
+            showCancel: false,
+            confirmText: 'OK'
+        });
+    }
+
+    const GRAPHICS_STORAGE_KEY = 'sysDefGraphics';
+    const GRAPHICS_RESOLUTION_PRESETS = [
+        { w: 1280, h: 720, label: '1280 × 720' },
+        { w: 1600, h: 900, label: '1600 × 900' },
+        { w: 1920, h: 1080, label: '1920 × 1080' },
+        { w: 2560, h: 1440, label: '2560 × 1440' },
+    ];
+    function getGraphicsSettings() {
+        try {
+            const raw = localStorage.getItem(GRAPHICS_STORAGE_KEY);
+            if (raw) {
+                const o = JSON.parse(raw);
+                if (o && o.mode) return { mode: o.mode, width: +o.width || 1280, height: +o.height || 720 };
+            }
+        } catch (e) {}
+        return { mode: 'fullscreen', width: 1280, height: 720 };
+    }
+    function saveGraphicsSettings(g) {
+        try { localStorage.setItem(GRAPHICS_STORAGE_KEY, JSON.stringify(g)); } catch (e) {}
+    }
+    function populateGraphicsResolutionSelect() {
+        ['graphics-resolution-select', 'pause-graphics-resolution-select'].forEach((id) => {
+            const sel = document.getElementById(id);
+            if (!sel) return;
+            sel.innerHTML = '';
+            GRAPHICS_RESOLUTION_PRESETS.forEach((p, i) => {
+                const opt = document.createElement('option');
+                opt.value = String(i);
+                opt.textContent = p.label;
+                sel.appendChild(opt);
+            });
+        });
+    }
+    function syncGraphicsSettingsUi() {
+        const g = getGraphicsSettings();
+        populateGraphicsResolutionSelect();
+        ['graphics-resolution-select', 'pause-graphics-resolution-select'].forEach((id) => {
+            const sel = document.getElementById(id);
+            if (!sel) return;
+            let idx = GRAPHICS_RESOLUTION_PRESETS.findIndex(p => p.w === g.width && p.h === g.height);
+            if (idx < 0) idx = 0;
+            sel.value = String(idx);
+        });
+        document.querySelectorAll('input[name="graphics-window-mode"], input[name="pause-graphics-window-mode"]').forEach(function (r) {
+            r.checked = (r.value === g.mode);
+        });
+    }
+    function mirrorGraphicsModeRadios(val) {
+        document.querySelectorAll('input[name="graphics-window-mode"], input[name="pause-graphics-window-mode"]').forEach((r) => { r.checked = r.value === val; });
+        uiSfxClick();
+    }
+    function mirrorGraphicsResolutionSelect(sourceEl) {
+        const a = document.getElementById('graphics-resolution-select');
+        const b = document.getElementById('pause-graphics-resolution-select');
+        if (!a || !b) return;
+        if (sourceEl && sourceEl.id === 'graphics-resolution-select') b.value = a.value;
+        else if (sourceEl && sourceEl.id === 'pause-graphics-resolution-select') a.value = b.value;
+        uiSfxClick();
+    }
+    function readGraphicsFromUi() {
+        const r = document.querySelector('input[name="graphics-window-mode"]:checked') || document.querySelector('input[name="pause-graphics-window-mode"]:checked');
+        const mode = r ? r.value : 'fullscreen';
+        const sel = document.getElementById('graphics-resolution-select') || document.getElementById('pause-graphics-resolution-select');
+        const idx = sel ? Math.max(0, Math.min(GRAPHICS_RESOLUTION_PRESETS.length - 1, parseInt(sel.value, 10) || 0)) : 0;
+        const preset = GRAPHICS_RESOLUTION_PRESETS[idx];
+        return { mode: mode, width: preset.w, height: preset.h };
+    }
+    function applyGraphicsFromUi() {
+        const g = readGraphicsFromUi();
+        saveGraphicsSettings(g);
+        if (window.electronAPI && electronAPI.setWindowMode) electronAPI.setWindowMode(g);
+        syncGraphicsSettingsUi();
+        uiSfxClick();
+    }
+    function applyGraphicsFromStorageOnStartup() {
+        if (!window.electronAPI || !electronAPI.setWindowMode) return;
+        electronAPI.setWindowMode(getGraphicsSettings());
+    }
+    function quitApplication() {
+        uiSfxClick();
+        if (window.electronAPI && electronAPI.quitApp) electronAPI.quitApp();
+        else try { window.close(); } catch (e) {}
+    }
+    function onGraphicsModeChange() {}
+    function onGraphicsResolutionSelect() {}
 
     /** Terminal phosphor palette — hex mirrors :root in styles/main.css (canvas cannot use var() without sync cost). Keep `speedUi` in sync with `--ui-accent-cyan`. */
     const GAME_THEME = {
@@ -771,8 +1053,9 @@
         loadCodex();
     }
 
-    function onMenuNewGame() {
-        if (!confirm('Начать новую игру? Прогресс кампании, кодекс и счёт будут сброшены.')) return;
+    async function onMenuNewGame() {
+        const ok = await gameConfirm('Начать новую игру? Прогресс кампании, кодекс и счёт будут сброшены.', 'НОВАЯ ИГРА', { ok: 'НАЧАТЬ', cancel: 'ОТМЕНА' });
+        if (!ok) return;
         resetGameProgressKeepControls();
         syncContinueButtonVisibility();
         refreshShipClassCards();
@@ -828,7 +1111,7 @@
         });
     }
 
-    function onContinueStart() {
+    async function onContinueStart() {
         const p = loadProgressV2();
         const fm = isFreeMode(p);
         const shipId = continueSelectedShip;
@@ -844,7 +1127,8 @@
                 `- последующие этапы на этом модуле\n` +
                 `- более поздние модули (если были открыты)\n\n` +
                 `Продолжить?`;
-            if (!confirm(msg)) return;
+            const ok = await gameConfirm(msg, 'ПРОДОЛЖИТЬ КАМПАНИЮ', { ok: 'ПРОДОЛЖИТЬ', cancel: 'ОТМЕНА' });
+            if (!ok) return;
 
             // Сброс на выбранном корабле
             p.ships[String(shipId)] = p.ships[String(shipId)] || { clearedBossStage: 0 };
@@ -893,9 +1177,10 @@
     function applySettingsShellLayout() {
         const shell = document.querySelector('#start-screen .menu-shell');
         if (!shell) return;
-        shell.classList.remove('menu-shell--settings-control', 'menu-shell--settings-audio', 'menu-shell--settings-progress', 'menu-shell--settings-difficulty');
+        shell.classList.remove('menu-shell--settings-control', 'menu-shell--settings-audio', 'menu-shell--settings-graphics', 'menu-shell--settings-progress', 'menu-shell--settings-difficulty');
         if (settingsSection === 'controls') shell.classList.add('menu-shell--settings-control');
         else if (settingsSection === 'audio') shell.classList.add('menu-shell--settings-audio');
+        else if (settingsSection === 'graphics') shell.classList.add('menu-shell--settings-graphics');
         else if (settingsSection === 'progress') shell.classList.add('menu-shell--settings-progress');
         else if (settingsSection === 'difficulty') shell.classList.add('menu-shell--settings-difficulty');
     }
@@ -903,7 +1188,7 @@
     function resetSettingsViewsToHub() {
         settingsSection = 'hub';
         const hub = document.getElementById('settings-view-hub');
-        ['settings-view-audio', 'settings-view-controls', 'settings-view-difficulty', 'settings-view-progress'].forEach(id => {
+        ['settings-view-audio', 'settings-view-controls', 'settings-view-difficulty', 'settings-view-graphics', 'settings-view-progress'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.classList.add('hidden');
         });
@@ -918,9 +1203,10 @@
         const va = document.getElementById('settings-view-audio');
         const vc = document.getElementById('settings-view-controls');
         const vd = document.getElementById('settings-view-difficulty');
+        const vg = document.getElementById('settings-view-graphics');
         const vp = document.getElementById('settings-view-progress');
         const title = document.getElementById('settings-panel-title');
-        [hub, va, vc, vd, vp].forEach(el => { if (el) el.classList.add('hidden'); });
+        [hub, va, vc, vd, vg, vp].forEach(el => { if (el) el.classList.add('hidden'); });
         settingsSection = section;
         if (section === 'hub') {
             if (hub) hub.classList.remove('hidden');
@@ -939,6 +1225,10 @@
             syncDifficultyRadiosNewGame();
             updateDifficultyDetailPanels();
             syncOneLifeCheckbox();
+        } else if (section === 'graphics') {
+            if (vg) vg.classList.remove('hidden');
+            if (title) title.textContent = 'ГРАФИКА';
+            syncGraphicsSettingsUi();
         } else if (section === 'progress') {
             if (vp) vp.classList.remove('hidden');
             if (title) title.textContent = 'ПРОГРЕСС';
@@ -972,6 +1262,7 @@
             syncControlSchemePanels();
             syncVolumeUi();
             syncOneLifeCheckbox();
+            syncGraphicsSettingsUi();
         }
         if (kind === 'continue') { renderContinuePanel(); }
     }
@@ -1156,23 +1447,24 @@
         pCtx.restore();
     }
 
-    function hardResetProgress() {
-        if(confirm("ВНИМАНИЕ! Это полностью удалит все открытые модули и очки. Продолжить?")) {
-            try { localStorage.clear(); } catch(e){}
-            unlockedShips = 1; codexUnlocked = new Set(); loadCodex();
-            refreshShipClassCards();
-            initMenu();
-            toggleMenuSettings();
-            alert("Прогресс успешно сброшен.");
-        }
+    async function hardResetProgress() {
+        const ok = await gameConfirm('Это полностью удалит все открытые модули и очки. Продолжить?', 'ВНИМАНИЕ', { ok: 'СБРОСИТЬ', cancel: 'ОТМЕНА' });
+        if (!ok) return;
+        try { localStorage.clear(); } catch(e){}
+        unlockedShips = 1; codexUnlocked = new Set(); loadCodex();
+        refreshShipClassCards();
+        initMenu();
+        toggleMenuSettings();
+        await gameAlert('Прогресс успешно сброшен.', 'ГОТОВО');
     }
 
-    function resetProgressFromSettings() {
-        if (!confirm('Сбросить прогресс кампании? Будут очищены модули, кодекс и общий счёт. Настройки звука и управления сохранятся.')) return;
+    async function resetProgressFromSettings() {
+        const ok = await gameConfirm('Сбросить прогресс кампании? Будут очищены модули, кодекс и общий счёт. Настройки звука и управления сохранятся.', 'СБРОС ПРОГРЕССА', { ok: 'СБРОСИТЬ', cancel: 'ОТМЕНА' });
+        if (!ok) return;
         resetGameProgressKeepControls();
         syncContinueButtonVisibility();
         refreshShipClassCards();
-        alert('Прогресс сброшен.');
+        await gameAlert('Прогресс сброшен.', 'ГОТОВО');
     }
 
     function syncVolumeUi() {
@@ -1577,21 +1869,33 @@
 
     
     // --- ИГРОВОЙ ДВИЖОК ---
-    const canvas = document.getElementById('gameCanvas');
+    // Кадр собирается в offscreen Canvas2D; на экран выводится через Pixi (WebGPU / WebGL2).
+    let canvas = document.createElement('canvas');
     let ctx = null;
     try {
         ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
     } catch (e) {}
     if (!ctx) ctx = canvas.getContext('2d');
-    /** Пороги LOD: много врагов / частиц — дешевле тени и свечения. */
+    let battlePresentation = null;
+    /** @type {null | Function} */
+    let redrawParticlesGraphics = null;
+    function commitPresentationFrame() {
+        if (battlePresentation && typeof battlePresentation.commitFrame === 'function') battlePresentation.commitFrame();
+    }
+    /** Пороги: мягче «стресс», чем в агрессивном LOD — полный неон по умолчанию. */
     const PERF = {
-        enemyShadowLodCount: 34,
-        particleGlowOffCount: 200,
-        particleCapBase: 500,
-        particleCapStress: 280,
-        enemyStressCount: 28,
-        pcbPulseStride: 3
+        enemyShadowLodCount: 80,
+        particleGlowOffCount: 400,
+        particleCapBase: 520,
+        particleCapStress: 320,
+        enemyStressCount: 32,
+        pcbPulseStride: 1
     };
+    function countActiveEnemiesQuick() {
+        let n = 0;
+        for (let i = 0; i < enemies.length; i++) if (enemies[i].active) n++;
+        return n;
+    }
     let cyberBgOffscreen = null;
     let cyberBgCacheKey = '';
     let combatVignetteGrad = null;
@@ -1677,6 +1981,7 @@
         const h = vv ? Math.max(1, Math.floor(vv.height)) : window.innerHeight;
         canvas.width = w;
         canvas.height = h;
+        if (battlePresentation && typeof battlePresentation.resize === 'function') battlePresentation.resize(w, h);
         invalidateCyberBgCache();
         combatVignetteKey = '';
         _combatScanPat = null;
@@ -1688,6 +1993,28 @@
         window.visualViewport.addEventListener('scroll', resize);
     }
     resize();
+    (function attachGameViewFallback() {
+        var mount = document.getElementById('game-view-mount');
+        if (!mount || !canvas) return;
+        canvas.style.display = 'block';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        mount.appendChild(canvas);
+    })();
+    Promise.all([
+        import('./render/battle-presentation.js'),
+        import('./render/fx-particles-pixi.js')
+    ]).then(function (mods) {
+        var mod = mods[0], fx = mods[1];
+        redrawParticlesGraphics = fx.redrawParticlesGraphics;
+        var mount = document.getElementById('game-view-mount');
+        if (!mount || !canvas) return;
+        return mod.createBattlePresentation({ mount: mount, sourceCanvas: canvas, preference: 'webgpu' }).then(function (p) {
+            battlePresentation = p;
+            battlePresentation.resize(canvas.width, canvas.height);
+            try { console.info('[render] Pixi backend:', battlePresentation.getBackendLabel()); } catch (e) {}
+        });
+    }).catch(function (err) { console.error('[render] Pixi init failed', err); });
 
     let isPlaying = false, isUpgrading = false, bits = 0;
     const MAX_WAVES = 16; let currentWave = 1, enemiesToSpawn = 0, enemiesSpawned = 0;
@@ -1767,10 +2094,15 @@
         const el = document.getElementById('settings-one-life');
         if (el) el.checked = isOneLifeSettingOn();
     }
-    function onOneLifeSettingChange(box) {
+    async function onOneLifeSettingChange(box) {
         const want = !!(box && box.checked);
         if (want) {
-            if (!confirm('Режим «Одна жизнь»: будет полностью сброшен прогресс кампании, кодекс и счёт, игра начнётся заново. Любая гибель модуля снова обнулит прогресс; сохранения только после 2-го и 4-го боссов (волн 8 и 16). Продолжить?')) {
+            const ok = await gameConfirm(
+                'Режим «Одна жизнь»: будет полностью сброшен прогресс кампании, кодекс и счёт, игра начнётся заново. Любая гибель модуля снова обнулит прогресс; сохранения только после 2-го и 4-го боссов (волн 8 и 16). Продолжить?',
+                'ОДНА ЖИЗНЬ',
+                { ok: 'ВКЛЮЧИТЬ', cancel: 'ОТМЕНА' }
+            );
+            if (!ok) {
                 box.checked = false;
                 return;
             }
@@ -1778,7 +2110,7 @@
             resetGameProgressKeepControls();
             syncContinueButtonVisibility();
             refreshShipClassCards();
-            alert('Прогресс сброшен. Режим «Одна жизнь» включён — начните новую игру.');
+            await gameAlert('Прогресс сброшен. Режим «Одна жизнь» включён — начните новую игру.', 'ГОТОВО');
         } else {
             setOneLifeSettingOn(false);
         }
@@ -1909,7 +2241,7 @@
         const isGp = getControlScheme() === 'gamepad';
         if (kb) kb.classList.toggle('hidden', isGp);
         if (gpEl) gpEl.classList.toggle('hidden', !isGp);
-        document.querySelectorAll('input[name="control-scheme"]').forEach(el => { el.checked = (el.value === 'gamepad') === isGp; });
+        document.querySelectorAll('input[name="control-scheme"], input[name="pause-control-scheme"]').forEach(el => { el.checked = (el.value === 'gamepad') === isGp; });
         const hk = document.getElementById('start-hint-keyboard');
         const hg = document.getElementById('start-hint-gamepad');
         if (hk) hk.classList.toggle('hidden', isGp);
@@ -2081,6 +2413,7 @@
                     document.getElementById('settings-open-audio'),
                     document.getElementById('settings-open-controls'),
                     document.getElementById('settings-open-difficulty'),
+                    document.getElementById('settings-open-graphics'),
                     document.getElementById('settings-open-progress'),
                     document.getElementById('settings-hub-close')
                 ].filter(Boolean);
@@ -2115,12 +2448,53 @@
                     document.getElementById('settings-close-difficulty')
                 ].filter(Boolean);
             }
+            if (settingsSection === 'graphics') {
+                const modeRadios = Array.from(panel.querySelectorAll('input[name="graphics-window-mode"]'));
+                return [
+                    ...modeRadios,
+                    document.getElementById('graphics-resolution-select'),
+                    document.getElementById('graphics-apply-btn'),
+                    document.getElementById('settings-back-graphics'),
+                    panel.querySelector('#settings-view-graphics .continue-actions .menu-btn:last-of-type')
+                ].filter(Boolean);
+            }
             return [];
         }
         if (ctx === 'pause') {
+            const root = document.getElementById('pause-settings-root');
+            if (root && !root.classList.contains('hidden')) {
+                if (pauseSettingsSection === 'hub') {
+                    return [
+                        document.getElementById('pause-open-audio'),
+                        document.getElementById('pause-open-graphics'),
+                        document.getElementById('pause-open-controls'),
+                        document.getElementById('pause-back-from-hub')
+                    ].filter(Boolean);
+                }
+                if (pauseSettingsSection === 'audio') {
+                    return [
+                        document.getElementById('pause-music-vol'),
+                        document.getElementById('pause-sfx-vol'),
+                        ...Array.from(document.querySelectorAll('#pause-view-audio .pause-settings-actions .menu-btn'))
+                    ].filter(Boolean);
+                }
+                if (pauseSettingsSection === 'graphics') {
+                    return [
+                        ...Array.from(document.querySelectorAll('input[name="pause-graphics-window-mode"]')),
+                        document.getElementById('pause-graphics-resolution-select'),
+                        document.getElementById('pause-graphics-apply-btn'),
+                        ...Array.from(document.querySelectorAll('#pause-view-graphics .pause-settings-actions .menu-btn'))
+                    ].filter(Boolean);
+                }
+                if (pauseSettingsSection === 'controls') {
+                    return [
+                        ...Array.from(document.querySelectorAll('input[name="pause-control-scheme"]')),
+                        ...Array.from(document.querySelectorAll('#pause-view-controls .pause-settings-actions .menu-btn'))
+                    ].filter(Boolean);
+                }
+            }
             return [
-                document.getElementById('pause-music-vol'),
-                document.getElementById('pause-sfx-vol'),
+                document.getElementById('pause-btn-open-settings'),
                 document.getElementById('pause-btn-resume'),
                 document.getElementById('pause-btn-menu')
             ].filter(Boolean);
@@ -2489,8 +2863,60 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawMenuBackground();
             tickMenuMatrixCanvas();
+            commitPresentationFrame();
             menuAnimId = requestAnimationFrame(menuLoop);
         }
+    }
+
+    let pauseSettingsSection = 'main';
+
+    function resetPauseSettingsViewsToHub() {
+        pauseSettingsSection = 'hub';
+        ['pause-view-hub', 'pause-view-audio', 'pause-view-graphics', 'pause-view-controls'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('hidden', id !== 'pause-view-hub');
+        });
+    }
+
+    function openPauseSettingsHub() {
+        const main = document.getElementById('pause-view-main');
+        const root = document.getElementById('pause-settings-root');
+        if (main) main.classList.add('hidden');
+        if (root) root.classList.remove('hidden');
+        resetPauseSettingsViewsToHub();
+        syncVolumeUi();
+        uiSfxClick();
+    }
+
+    function openPauseSettingsSection(section) {
+        const hub = document.getElementById('pause-view-hub');
+        const va = document.getElementById('pause-view-audio');
+        const vg = document.getElementById('pause-view-graphics');
+        const vc = document.getElementById('pause-view-controls');
+        [hub, va, vg, vc].forEach((el) => { if (el) el.classList.add('hidden'); });
+        pauseSettingsSection = section;
+        if (section === 'hub') {
+            if (hub) hub.classList.remove('hidden');
+        } else if (section === 'audio') {
+            if (va) va.classList.remove('hidden');
+            syncVolumeUi();
+        } else if (section === 'graphics') {
+            if (vg) vg.classList.remove('hidden');
+            syncGraphicsSettingsUi();
+        } else if (section === 'controls') {
+            if (vc) vc.classList.remove('hidden');
+            syncControlSchemePanels();
+        }
+        uiSfxClick();
+    }
+
+    function closePauseSettings() {
+        const main = document.getElementById('pause-view-main');
+        const root = document.getElementById('pause-settings-root');
+        if (root) root.classList.add('hidden');
+        if (main) main.classList.remove('hidden');
+        resetPauseSettingsViewsToHub();
+        pauseSettingsSection = 'main';
     }
 
     function togglePause() {
@@ -2498,10 +2924,12 @@
         const pScreen = document.getElementById('pause-screen');
         runUiTransition('fade');
         if (isPaused) {
+            closePauseSettings();
             syncVolumeUi();
             pScreen.classList.remove('hidden');
         } else {
             pScreen.classList.add('hidden');
+            closePauseSettings();
         }
     }
 
@@ -3740,7 +4168,7 @@
         draw() {
             // Exhaust trail particles occasionally
             if (Math.random() < 0.4) {
-                let p = new Particle(this.x, this.y, GAME_THEME.warm, 2);
+                let p = acquireParticle(this.x, this.y, GAME_THEME.warm, 2);
                 p.vx = -this.vx * 0.2 + (Math.random()-0.5)*2;
                 p.vy = -this.vy * 0.2 + (Math.random()-0.5)*2;
                 p.decay = 0.08; particles.push(p);
@@ -4968,7 +5396,7 @@
             this.defenseRole = null;
             if (isDefenseActive) {
                 // 2/3 focus objective (generators/core), 1/3 focus player
-                this.defenseRole = (Math.random() < (2/3)) ? 'objective' : 'player';
+                this.defenseRole = (Math.random() < 0.5) ? 'objective' : 'player';
             }
         }
         update() {
@@ -5591,7 +6019,7 @@
             if (captured.length >= 1) {
                 networkEffects.push(new NetworkEffect(captured, this.netDuration, this.dmg, this.maxTargets));
             }
-            createParticles(firstTarget.x, firstTarget.y, 18, GAME_THEME.magenta);
+            createParticles(firstTarget.x, firstTarget.y, countActiveEnemiesQuick() > 22 ? 10 : 18, GAME_THEME.magenta);
             sfx.playTone(600, 'sawtooth', 0.2, 0.2, 2);
         }
         draw() {
@@ -5642,9 +6070,10 @@
                 return;
             }
 
-            // AUTO-CAPTURE: реже (раз в 3 кадра), Set вместо includes
+            // AUTO-CAPTURE: реже при толпе врагов, Set вместо includes
             this._acTick++;
-            if (this.captured.length < this.maxTargets && this._acTick % 3 === 0) {
+            const acStride = enemies.length > 24 ? 4 : 3;
+            if (this.captured.length < this.maxTargets && this._acTick % acStride === 0) {
                 let centerX = 0, centerY = 0;
                 let aliveList = this.captured.filter(e => e && e.active !== false && e.hp !== undefined);
                 for (let e of aliveList) { centerX += e.x; centerY += e.y; }
@@ -5667,7 +6096,7 @@
                         t.netLocked = true;
                         this.captured.push(t);
                         this.capturedSet.add(t);
-                        createParticles(t.x, t.y, 8, GAME_THEME.magenta);
+                        createParticles(t.x, t.y, enemies.length > 22 ? 4 : 8, GAME_THEME.magenta);
                         if (this.captured.length >= this.maxTargets) break;
                     }
                 }
@@ -5714,11 +6143,18 @@
             for (let e of alive) { cx += e.x; cy += e.y; }
             cx /= alive.length; cy /= alive.length;
             
-            // NEON SPIDER WEB between all captured enemies
-            ctx.shadowBlur = 12; ctx.shadowColor = GAME_THEME.magenta;
-            
+            // NEON SPIDER WEB — LOD только при экстремальной толпе (иначе полный неон)
+            const globalStress = countActiveEnemiesQuick() > 42;
+            const netStress = globalStress && alive.length > 12;
+            ctx.shadowBlur = netStress ? 5 : 12; ctx.shadowColor = GAME_THEME.magenta;
+            let threadTargets = alive;
+            if (alive.length > 8 && netStress) {
+                threadTargets = alive.slice().sort((a, b) =>
+                    Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)).slice(0, 8);
+            }
+            const segCap = netStress ? 4 : 6;
             // Web threads from center to each captured enemy (детерминированный «шум», кап сегментов)
-            for (let e of alive) {
+            for (let e of threadTargets) {
                 let d = Math.hypot(e.x - cx, e.y - cy);
                 const ej = Math.sin(e.x * 0.02 + e.y * 0.017 + this.life * 0.11);
                 const ej2 = Math.cos(e.x * 0.015 - this.life * 0.09);
@@ -5730,7 +6166,7 @@
                 ctx.quadraticCurveTo(midX, midY, e.x, e.y);
                 ctx.stroke();
                 
-                let segments = Math.min(6, Math.max(1, Math.floor(d / 40)));
+                let segments = Math.min(segCap, Math.max(1, Math.floor(d / 40)));
                 for (let s = 1; s <= segments; s++) {
                     let t = s / (segments + 1);
                     let px = cx + (e.x - cx) * t;
@@ -5750,13 +6186,15 @@
             // Concentric web rings around center
             let maxR = 0;
             for (let e of alive) maxR = Math.max(maxR, Math.hypot(e.x - cx, e.y - cy));
-            let ringCount = 3;
+            let ringCount = netStress ? 2 : 3;
+            const ringStride = (netStress && alive.length > 8) ? 2 : 1;
             for (let ring = 1; ring <= ringCount; ring++) {
                 let rr = (maxR * ring / (ringCount + 1)) * (0.9 + Math.sin(this.life * 0.08 + ring) * 0.1);
                 ctx.strokeStyle = `rgba(180, 0, 255, ${0.1 + alpha * 0.08})`;
                 ctx.lineWidth = 0.8;
                 ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
-                for (let e of alive) {
+                for (let ei = 0; ei < alive.length; ei += ringStride) {
+                    const e = alive[ei];
                     let a = Math.atan2(e.y - cy, e.x - cx);
                     let rx = cx + Math.cos(a) * rr;
                     let ry = cy + Math.sin(a) * rr;
@@ -5767,7 +6205,7 @@
             }
             
             // LIGHTNING between captured enemies — ближайшие пары, кап рёбер, ограниченный зигзаг
-            const MAX_LIGHTNING_EDGES = 14;
+            const MAX_LIGHTNING_EDGES = netStress ? 8 : 14;
             const ln = alive.length;
             if (ln >= 2) {
                 const pairs = [];
@@ -5784,9 +6222,9 @@
                     let { a, b, d } = pairs[pi];
                     ctx.strokeStyle = `rgba(200, 100, 255, ${0.4 + alpha * 0.3})`;
                     ctx.lineWidth = 1.5;
-                    ctx.shadowColor = GAME_THEME.violet; ctx.shadowBlur = 8;
+                    ctx.shadowColor = GAME_THEME.violet; ctx.shadowBlur = netStress ? 4 : 8;
                     ctx.beginPath(); ctx.moveTo(a.x, a.y);
-                    let segs = Math.min(6, Math.max(2, Math.floor(d / 35)));
+                    let segs = Math.min(netStress ? 4 : 6, Math.max(2, Math.floor(d / 35)));
                     for (let s = 1; s < segs; s++) {
                         let t = s / segs;
                         const wobble = Math.sin(a.x * 0.01 + b.y * 0.012 + s * 2.1 + this.life * 0.2) * 9;
@@ -5796,9 +6234,11 @@
                         ctx.lineTo(jx, jy);
                     }
                     ctx.lineTo(b.x, b.y); ctx.stroke();
-                    ctx.strokeStyle = `rgba(255, 180, 255, ${0.15 + alpha * 0.1})`;
-                    ctx.lineWidth = 3;
-                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                    if (!netStress) {
+                        ctx.strokeStyle = `rgba(255, 180, 255, ${0.15 + alpha * 0.1})`;
+                        ctx.lineWidth = 3;
+                        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                    }
                 }
             }
             
@@ -5896,9 +6336,11 @@
                     if (this.shootTimer > 150) { enemies.push(new Enemy('swarm', this.x, this.y, 1)); this.shootTimer = 0; }
                     break;
                 case 'laser':
-                    if (this.shootTimer < 120) { this.laserActive = false; }
-                    else if (this.shootTimer < 360) {
-                        this.laserActive = true; this.laserFixedBase += 0.0033;
+                    if (this.shootTimer < 120) {
+                        this.laserActive = false;
+                    } else if (this.shootTimer < 360) {
+                        this.laserActive = true;
+                        this.laserFixedBase += 0.0033;
                         for (let i = 0; i < 3; i++) {
                             let curAngle = this.laserFixedBase + i * 2.094;
                             let lx = this.x + Math.cos(curAngle) * 2000, ly = this.y + Math.sin(curAngle) * 2000;
@@ -5906,7 +6348,10 @@
                             let dot = (player.x - this.x) * Math.cos(curAngle) + (player.y - this.y) * Math.sin(curAngle);
                             if (dot > 0 && distToLaser < player.radius + 15 && !isGodMode && !player.isInvincible()) { player.hp -= scaleDamageFromEnemyProjectileBase(2); createParticles(player.x, player.y, 2, GAME_THEME.dangerHot); }
                         }
-                    } else if (this.shootTimer > 500) { this.shootTimer = 0; this.laserFixedBase = Math.random() * Math.PI * 2; }
+                    } else {
+                        this.laserActive = false;
+                    }
+                    if (this.shootTimer > 500) { this.shootTimer = 0; this.laserFixedBase = Math.random() * Math.PI * 2; }
                     break;
                 case 'root':
                     if (this.shootTimer % 90 === 0) for(let i=-2;i<=2;i++) pushEnemyBullet(this.x, this.y, angleToPlayer + i*0.25, 12, GAME_THEME.dangerHot, false, 8, 5);
@@ -6033,6 +6478,113 @@
             }
         }
         draw() {
+            // Предупреждения атак (телеграф): лазер — тонкие пунктирные лучи; остальные — по паттерну
+            if (this.phase === 1) {
+                const drawLaserTelegraph = (baseAng) => {
+                    const pulse = 0.32 + 0.38 * Math.sin(this.shootTimer * 0.14);
+                    for (let i = 0; i < 3; i++) {
+                        const curAngle = baseAng + i * 2.094;
+                        ctx.save();
+                        ctx.translate(this.x, this.y);
+                        ctx.rotate(curAngle);
+                        ctx.strokeStyle = `rgba(255, 55, 40, ${pulse})`;
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([11, 9]);
+                        ctx.shadowBlur = 12;
+                        ctx.shadowColor = 'rgba(255, 60, 45, 0.5)';
+                        ctx.beginPath();
+                        ctx.moveTo(this.radius + 6, 0);
+                        ctx.lineTo(2200, 0);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        ctx.shadowBlur = 0;
+                        ctx.restore();
+                    }
+                };
+                if (this.bossType === 'laser' && this.shootTimer < 120) {
+                    drawLaserTelegraph(this.laserFixedBase);
+                }
+                if (this.bossType === 'archive_corrupt' && this.shootTimer > 380 && this.shootTimer <= 500) {
+                    drawLaserTelegraph(this.laserFixedBase);
+                }
+                if (this.bossType === 'gate_crash' && this.shootTimer < 62) {
+                    const ang = Math.atan2(player.y - this.y, player.x - this.x);
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(ang);
+                    ctx.strokeStyle = `rgba(255, 210, 100, ${0.35 + 0.28 * Math.sin(this.shootTimer * 0.22)})`;
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([9, 7]);
+                    ctx.beginPath();
+                    ctx.moveTo(this.radius + 4, 0);
+                    ctx.lineTo(520, 0);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.restore();
+                }
+                if (this.bossType === 'spawner' && this.shootTimer >= 130 && this.shootTimer < 150) {
+                    const p = (this.shootTimer - 130) / 20;
+                    ctx.strokeStyle = `rgba(255, 40, 255, ${0.28 + 0.4 * p})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 65 + p * 55, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                if (this.bossType === 'fortress' && this.extraTimer > 175 && this.extraTimer <= 200) {
+                    ctx.strokeStyle = `rgba(255, 200, 90, ${0.32 + 0.2 * Math.sin(this.shootTimer * 0.28)})`;
+                    ctx.lineWidth = 2;
+                    for (let i = 0; i < 8; i++) {
+                        const a = i * Math.PI / 4;
+                        ctx.beginPath();
+                        ctx.moveTo(this.x + Math.cos(a) * (this.radius + 8), this.y + Math.sin(a) * (this.radius + 8));
+                        ctx.lineTo(this.x + Math.cos(a) * (this.radius + 130), this.y + Math.sin(a) * (this.radius + 130));
+                        ctx.stroke();
+                    }
+                }
+                if (this.bossType === 'junkmail' && this.extraTimer > 85 && this.extraTimer < 100) {
+                    ctx.strokeStyle = `rgba(120, 255, 160, ${0.25 + 0.25 * Math.sin(this.extraTimer * 0.4)})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 25 + (100 - this.extraTimer) * 2.2, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                if (this.bossType === 'quarantine' && this.extraTimer > 130 && this.extraTimer < 150) {
+                    ctx.strokeStyle = 'rgba(255, 220, 120, 0.4)';
+                    ctx.setLineDash([6, 5]);
+                    ctx.beginPath();
+                    ctx.arc(player.x, player.y, 48, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+                if (this.bossType === 'firewall_boss' && this.extraTimer > 75 && this.extraTimer < 90) {
+                    ctx.strokeStyle = 'rgba(255, 140, 60, 0.38)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 55 + (90 - this.extraTimer) * 3, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                if (this.bossType === 'root' && this.shootTimer % 200 >= 175 && this.shootTimer % 200 < 200) {
+                    ctx.strokeStyle = 'rgba(255, 90, 60, 0.35)';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 95, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                if (this.bossType === 'zero_day' && (this.shootTimer === 92 || this.shootTimer === 192)) {
+                    ctx.strokeStyle = 'rgba(255, 60, 120, 0.42)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 200, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                if (this.bossType === 'packet_storm' && this.extraTimer > 330 && this.extraTimer < 360) {
+                    ctx.strokeStyle = 'rgba(0, 255, 255, 0.35)';
+                    ctx.setLineDash([5, 6]);
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 70 + (360 - this.extraTimer) * 0.8, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            }
             // Laser drawing for laser/archive_corrupt bosses
             if (this.phase === 1 && (this.bossType === 'laser' || this.bossType === 'archive_corrupt') && this.laserActive) {
                 for(let i=0;i<3;i++){
@@ -6255,13 +6807,36 @@
         }
     }
 
+    const particlePool = [];
+    function releaseParticle(p) {
+        if (particlePool.length < 900) particlePool.push(p);
+    }
+    function acquireParticle(x, y, color, sizeOverride) {
+        let p = particlePool.pop();
+        if (p) p.reset(x, y, color, sizeOverride);
+        else p = new Particle(x, y, color, sizeOverride);
+        return p;
+    }
+    function particlesFilterAlive() {
+        const out = [];
+        for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            if (p.life > 0) out.push(p);
+            else releaseParticle(p);
+        }
+        particles = out;
+    }
     class Particle {
         constructor(x, y, color, sizeOverride) {
+            this.reset(x, y, color, sizeOverride);
+        }
+        reset(x, y, color, sizeOverride) {
             this.x = x; this.y = y; const angle = Math.random() * Math.PI * 2; const speed = Math.random() * 5 + 1;
             this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
             this.life = 1; this.decay = Math.random() * 0.04 + 0.015; this.color = color;
             this.size = sizeOverride || (Math.random() > 0.6 ? Math.random() * 5 + 2 : Math.random() * 2 + 1);
             this.glow = Math.random() > 0.5;
+            return this;
         }
         update() { this.x += this.vx; this.y += this.vy; this.vx *= 0.96; this.vy *= 0.96; this.life -= this.decay; }
         draw() {
@@ -6280,12 +6855,24 @@
             ctx.globalAlpha = 1;
         }
     }
-    function createParticles(x, y, count, color) { for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color)); }
+    function createParticles(x, y, count, color) {
+        const activeN = countActiveEnemiesQuick();
+        const pCap = activeN > PERF.enemyStressCount ? PERF.particleCapStress : PERF.particleCapBase;
+        if (particles.length >= pCap) return;
+        let n = count;
+        if (particles.length + n > pCap) n = Math.max(0, pCap - particles.length);
+        for (let i = 0; i < n; i++) particles.push(acquireParticle(x, y, color));
+    }
     function createExplosion(x, y, count, color) {
-        for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color));
-        // Add some bright white center sparks
-        for (let i = 0; i < Math.floor(count/5); i++) {
-            let p = new Particle(x, y, GAME_THEME.spark, 2); p.decay = 0.08; particles.push(p);
+        const activeN = countActiveEnemiesQuick();
+        const pCap = activeN > PERF.enemyStressCount ? PERF.particleCapStress : PERF.particleCapBase;
+        let room = Math.max(0, pCap - particles.length);
+        if (room <= 0) return;
+        let c = Math.min(count, room);
+        for (let i = 0; i < c; i++) particles.push(acquireParticle(x, y, color));
+        const sparks = Math.min(Math.floor(count / 5), Math.max(0, pCap - particles.length));
+        for (let i = 0; i < sparks; i++) {
+            let p = acquireParticle(x, y, GAME_THEME.spark, 2); p.decay = 0.08; particles.push(p);
         }
     }
     
@@ -6719,7 +7306,6 @@
             else if (freePicksRemaining <= 0) card.classList.add('upgrade-card--locked');
             card.innerHTML = `<h2>${upg.title}</h2><p>${upg.desc}</p>`;
             card.onclick = () => {
-                if (pickedFreeStatId && upg.id !== pickedFreeStatId) return;
                 if (card.classList.contains('upgrade-card--locked')) return;
                 applyStatUpgrade(upg.id);
             };
@@ -6750,6 +7336,7 @@
         if (id === 'proj') { player.stats.spread = Math.min(GAME_BALANCE_CONFIG.player.maxSpread, player.stats.spread + 1); floatingTexts.push(new FloatingText(player.x, player.y, "+1 СНАРЯД", GAME_THEME.gold)); }
         document.querySelectorAll('#upgrade-cards-container .upgrade-card').forEach(c => {
             const sid = c.dataset.statId;
+            c.classList.remove('upgrade-card--picked', 'upgrade-card--locked');
             if (pickedFreeStatIds.includes(sid)) c.classList.add('upgrade-card--picked');
             else if (freePicksRemaining <= 0) c.classList.add('upgrade-card--locked');
         });
@@ -7048,7 +7635,7 @@
             title = `СЕКТОР ${currentWave} · БОСС`;
             html = `<div style="margin-bottom:10px;">Критическая угроза обнаружена.</div>
                     <div>— Уничтожьте босса.</div>
-                    <div>— После взрыва угроза будет полностью очищена.</div>`;
+                    <div>— После взрыва угроза будет полностью зачищена.</div>`;
         } else if (isDefenseActive) {
             title = `СЕКТОР ${currentWave} · ЗАЩИТА ЯДРА`;
             const secs = Math.floor((defenseTimerMax || 0) / 60);
@@ -7057,10 +7644,10 @@
                     <div>— Пока активны генераторы щита, ядро неуязвимо.</div>
                     <div>— Время загрузки: <b>${formatTimeSec(secs)}</b>.</div>`;
         } else {
-            title = `СЕКТОР ${currentWave} · ОЧИСТКА`;
-            html = `<div style="margin-bottom:10px;">Очистите сектор от угроз.</div>
+            title = `СЕКТОР ${currentWave} · ЗАЧИСТКА`;
+            html = `<div style="margin-bottom:10px;">Зачистите сектор от угроз.</div>
                     <div>— Уничтожьте всех противников.</div>
-                    <div>— Сектор будет очищен после устранения угроз.</div>`;
+                    <div>— После зачистки сектор будет помечен как безопасный.</div>`;
         }
 
         titleEl.textContent = title;
@@ -7082,7 +7669,7 @@
             active: true,
             kind,
             t: 0,
-            max: kind === 'defense' ? 96 : (kind === 'boss' ? 84 : 46),
+            max: kind === 'defense' ? 110 : (kind === 'boss' ? 100 : 33),
             x: (typeof x === 'number') ? x : canvas.width / 2,
             y: (typeof y === 'number') ? y : canvas.height / 2,
             color: normalColor,
@@ -7114,7 +7701,7 @@
             pickups.forEach(p => p.update()); pickups = pickups.filter(p => p.active);
             powerups.forEach(p => p.update()); powerups = powerups.filter(p => p.active);
             defenseDrops.forEach(d => d.update()); defenseDrops = defenseDrops.filter(d => d.active);
-            particles.forEach(p => p.update()); particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => p.update()); particlesFilterAlive();
             floatingTexts.forEach(ft => ft.update()); floatingTexts = floatingTexts.filter(ft => ft.life > 0);
             updateUI();
             return;
@@ -7311,37 +7898,14 @@
             }
         }
 
-        // Level end sequences: short cinematic pause before upgrade screen
+        // Level end sequences: короткая пауза перед экраном апгрейда (босс/защита — эффекты; обычный сектор — лёгкий скан в draw)
         if (levelEndSequence && levelEndSequence.active) {
             levelEndSequence.t++;
-            // Cinematic slow-mo for normal wave ending: slow particle updates and "linger" explosion
-            if (levelEndSequence.kind === 'normal') {
-                const k = Math.min(1, levelEndSequence.t / Math.max(1, levelEndSequence.max));
-                // spawn a gradual explosion plume
-                if (levelEndSequence.t % 2 === 0) {
-                    const c = levelEndSequence.color || GAME_THEME.spark;
-                    createExplosion(levelEndSequence.x + (Math.random() - 0.5) * 10, levelEndSequence.y + (Math.random() - 0.5) * 10, 5 + Math.floor(8 * (1 - k)), c);
-                }
-                // slow particles: update only some each tick
-                for (let i = 0; i < particles.length; i++) {
-                    if (Math.random() < 0.45) particles[i].update();
-                }
-                particles = particles.filter(p => p.life > 0);
-            } else {
-            // let particles/texts finish their work while gameplay is frozen
             pickups.forEach(p => p.update()); pickups = pickups.filter(p => p.active);
             powerups.forEach(p => p.update()); powerups = powerups.filter(p => p.active);
             defenseDrops.forEach(d => d.update()); defenseDrops = defenseDrops.filter(d => d.active);
-            particles.forEach(p => p.update()); particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => p.update()); particlesFilterAlive();
             floatingTexts.forEach(ft => ft.update()); floatingTexts = floatingTexts.filter(ft => ft.life > 0);
-            }
-            if (levelEndSequence.kind === 'normal') {
-                // still allow pickups/powerups drift during cinematic
-                pickups.forEach(p => p.update()); pickups = pickups.filter(p => p.active);
-                powerups.forEach(p => p.update()); powerups = powerups.filter(p => p.active);
-                defenseDrops.forEach(d => d.update()); defenseDrops = defenseDrops.filter(d => d.active);
-                floatingTexts.forEach(ft => ft.update()); floatingTexts = floatingTexts.filter(ft => ft.life > 0);
-            }
             updateUI();
             if (levelEndSequence.t >= levelEndSequence.max) {
                 levelEndSequence.active = false;
@@ -7509,7 +8073,7 @@
         pickups.forEach(p => p.update()); pickups = pickups.filter(p => p.active); 
         powerups.forEach(p => p.update()); powerups = powerups.filter(p => p.active); 
         defenseDrops.forEach(d => d.update()); defenseDrops = defenseDrops.filter(d => d.active);
-        particles.forEach(p => p.update()); particles = particles.filter(p => p.life > 0);
+        particles.forEach(p => p.update()); particlesFilterAlive();
         // Defense EMP timer + pulse animation
         if (isDefenseActive && defenseEmpTimer > 0) {
             defenseEmpTimer--;
@@ -7540,7 +8104,11 @@
         let activeN = 0;
         for (let i = 0; i < enemies.length; i++) if (enemies[i].active) activeN++;
         const pCap = activeN > PERF.enemyStressCount ? PERF.particleCapStress : PERF.particleCapBase;
-        if (particles.length > pCap) particles.splice(0, particles.length - pCap);
+        if (particles.length > pCap) {
+            const excess = particles.length - pCap;
+            for (let i = 0; i < excess; i++) releaseParticle(particles[i]);
+            particles.splice(0, excess);
+        }
         floatingTexts.forEach(ft => ft.update()); floatingTexts = floatingTexts.filter(ft => ft.life > 0);
         if (floatingTexts.length > 30) floatingTexts.splice(0, floatingTexts.length - 30);
         
@@ -7710,10 +8278,169 @@
         ctx.restore();
     }
 
+    function drawParticlesCombat() {
+        if (battlePresentation && redrawParticlesGraphics && battlePresentation.particleFxGraphics) {
+            let activeEnemyN = 0;
+            for (let i = 0; i < enemies.length; i++) if (enemies[i].active) activeEnemyN++;
+            redrawParticlesGraphics(battlePresentation.particleFxGraphics, { particles, PERF, activeEnemyN });
+        } else {
+            particles.forEach(p => p.draw());
+        }
+    }
+
+    /** Конец сектора: скан / волны энергии и огня (все типы) */
+    function drawLevelEndSequenceFx() {
+        const seq = levelEndSequence;
+        if (!seq || !seq.active) return;
+        const W = canvas.width, H = canvas.height;
+        const t = seq.t, maxT = Math.max(1, seq.max);
+        const k = t / maxT;
+        const cx = seq.x, cy = seq.y;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 0.11);
+
+        const drawScanBand = (y, hueA, hueB, alphaMul) => {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            const grd = ctx.createLinearGradient(0, y, 0, y + 46);
+            grd.addColorStop(0, 'rgba(0,0,0,0)');
+            grd.addColorStop(0.45, `hsla(${hueA}, 90%, 58%, ${0.14 * alphaMul})`);
+            grd.addColorStop(0.55, `hsla(${hueB}, 95%, 72%, ${0.22 * alphaMul})`);
+            grd.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, y, W, 46);
+            ctx.restore();
+        };
+
+        if (seq.kind === 'normal') {
+            const span = H + 140;
+            const scanDownY = k * span - 70;
+            const scanUpY = (1 - k) * span - 70;
+            drawScanBand(scanDownY, 142, 155, 0.95 + 0.05 * pulse);
+            drawScanBand(scanUpY, 158, 168, 0.85 + 0.1 * pulse);
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = `rgba(120, 255, 200, ${0.06 + 0.05 * k})`;
+            ctx.lineWidth = 1;
+            for (let gx = (t * 3) % 40; gx < W; gx += 40) {
+                ctx.beginPath();
+                ctx.moveTo(gx, 0);
+                ctx.lineTo(gx, H);
+                ctx.stroke();
+            }
+            ctx.restore();
+            ctx.save();
+            ctx.globalAlpha = 0.45 + 0.4 * k;
+            ctx.font = 'bold 11px "Share Tech Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = `rgba(190, 255, 220, ${0.5 + 0.45 * k})`;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = 'rgba(40, 200, 120, 0.5)';
+            ctx.fillText('СКАН: УГРОЗ НЕ ОБНАРУЖЕНО · СЕКТОР ЗАЧИЩЕН', W / 2, Math.min(52, H * 0.12));
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+            ctx.restore();
+            return;
+        }
+
+        const R = Math.max(W, H) * 1.05;
+        if (seq.kind === 'boss') {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            for (let wave = 0; wave < 5; wave++) {
+                const delay = wave * 0.14;
+                const denom = Math.max(0.1, 1 - delay * 0.5);
+                const u = Math.max(0, Math.min(1, (k - delay) / denom));
+                const r = 55 + u * u * R + Math.sin(t * 0.09 + wave * 1.1) * 12;
+                const a = (1 - u) * (0.38 - wave * 0.055);
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, ${70 + wave * 25}, ${35 + wave * 15}, ${Math.max(0, a)})`;
+                ctx.lineWidth = 5 - wave * 0.45;
+                ctx.shadowBlur = 22;
+                ctx.shadowColor = `rgba(255, 100, 40, ${0.25 + 0.15 * (1 - u)})`;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+            const u2 = k * k;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 40 + u2 * R * 0.35, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(80, 240, 255, ${(1 - k) * 0.35})`;
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 18;
+            ctx.shadowColor = 'rgba(80, 220, 255, 0.35)';
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+
+            const scanY = (k * (H + 80)) - 40;
+            drawScanBand(scanY, 12, 28, 1.1);
+            drawScanBand(H - scanY - 46, 8, 20, 0.9);
+            ctx.save();
+            ctx.globalAlpha = 0.55 + 0.35 * pulse;
+            ctx.font = 'bold 12px "Share Tech Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = `rgba(255, 210, 160, ${0.55 + 0.35 * k})`;
+            ctx.shadowBlur = 14;
+            ctx.shadowColor = 'rgba(255, 90, 40, 0.45)';
+            ctx.fillText('ПОДТВЕРЖДЕНИЕ УНИЧТОЖЕНИЯ · ВОЛНА СЖИГАНИЯ', W / 2, Math.min(48, H * 0.1));
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+            ctx.restore();
+            return;
+        }
+
+        if (seq.kind === 'defense') {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            for (let wave = 0; wave < 6; wave++) {
+                const delay = wave * 0.1;
+                const denom = Math.max(0.1, 1 - delay * 0.45);
+                const u = Math.max(0, Math.min(1, (k - delay) / denom));
+                const r = 48 + u * u * R * 0.92 + Math.sin(t * 0.085 + wave) * 10;
+                const a = (1 - u) * (0.32 - wave * 0.04);
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${150 + wave * 12}, ${90 + wave * 20}, 255, ${Math.max(0, a)})`;
+                ctx.lineWidth = 4.2 - wave * 0.35;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = `rgba(160, 120, 255, ${0.22 + 0.12 * (1 - u)})`;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 36 + k * k * R * 0.4, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(0, 255, 200, ${(1 - k) * 0.4})`;
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+            ctx.restore();
+
+            const vy = (k * (H + 100)) - 50;
+            drawScanBand(vy, 265, 285, 1.05);
+            drawScanBand((1 - k) * (H + 100) - 50, 195, 210, 0.85);
+            ctx.save();
+            ctx.globalAlpha = 0.5 + 0.38 * pulse;
+            ctx.font = 'bold 12px "Share Tech Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = `rgba(200, 220, 255, ${0.55 + 0.35 * k})`;
+            ctx.shadowBlur = 16;
+            ctx.shadowColor = 'rgba(150, 100, 255, 0.42)';
+            ctx.fillText('СКАН ЗАЩИТЫ · ЭНЕРГОСТАБИЛИЗАЦИЯ', W / 2, Math.min(46, H * 0.09));
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+            ctx.restore();
+        }
+    }
+
     function draw() { 
         if(isPaused) return; 
         drawCyberBackground();
-        if (!isPlaying) return;
+        if (!isPlaying) {
+            if (battlePresentation && battlePresentation.particleFxGraphics) battlePresentation.particleFxGraphics.clear();
+            commitPresentationFrame();
+            return;
+        }
         
         // Screen shake
         if (screenShake > 0) {
@@ -7723,18 +8450,6 @@
             if (screenShake < 0.5) screenShake = 0;
         }
 
-        // Cinematic zoom on normal wave completion
-        let zoomApplied = false;
-        if (levelEndSequence && levelEndSequence.active && levelEndSequence.kind === 'normal') {
-            const k = Math.min(1, levelEndSequence.t / Math.max(1, levelEndSequence.max));
-            const zoom = 1 + 0.12 * Math.sin(k * Math.PI);
-            ctx.save();
-            ctx.translate(canvas.width / 2, canvas.height / 2);
-            ctx.scale(zoom, zoom);
-            ctx.translate(-levelEndSequence.x, -levelEndSequence.y);
-            zoomApplied = true;
-        }
-        
         // Fake 3D — draw shadow/depth layer underneath everything
         drawFake3DShadows();
 
@@ -8324,26 +9039,9 @@
             }
         }); 
         if (isBossActive && bossEntity) bossEntity.draw();
-        player.draw(); particles.forEach(p => p.draw()); floatingTexts.forEach(ft => ft.draw());
+        player.draw(); drawParticlesCombat(); floatingTexts.forEach(ft => ft.draw());
 
-        // Win-wave pulse overlay for boss/defense
-        if (levelEndSequence && levelEndSequence.active && (levelEndSequence.kind === 'boss' || levelEndSequence.kind === 'defense')) {
-            const k = Math.min(1, levelEndSequence.t / Math.max(1, levelEndSequence.max));
-            const r = (80 + k * k * Math.max(canvas.width, canvas.height) * 0.9);
-            const a = (1 - k) * 0.35;
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(levelEndSequence.x, levelEndSequence.y, r, 0, Math.PI * 2);
-            ctx.strokeStyle = levelEndSequence.kind === 'boss' ? `rgba(255, 90, 60, ${a})` : `rgba(179, 136, 255, ${a})`;
-            ctx.lineWidth = 6;
-            ctx.shadowBlur = 24;
-            ctx.shadowColor = levelEndSequence.kind === 'boss' ? 'rgba(255, 90, 60, 0.35)' : 'rgba(179, 136, 255, 0.35)';
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-        
-        if (zoomApplied) ctx.restore();
+        drawLevelEndSequenceFx();
         
         if (screenShake > 0) ctx.restore();
         
@@ -8369,6 +9067,7 @@
         }
         ctx.fillStyle = _combatScanPat;
         ctx.fillRect(0, 0, vw, vh);
+        commitPresentationFrame();
     }
     
     function resetToMenu() {
@@ -8479,7 +9178,6 @@
         bullets = []; enemyBullets = []; enemies = []; particles = []; pickups = []; powerups = []; walls = []; traces = []; portals = []; telegraphs = []; mines = []; floatingTexts = []; lightnings = []; chainLightnings = []; networkEffects = [];
         bits = 0; currentWave = 1; isUpgrading = false; isPaused = false;
         killsSinceLoot = 0;
-        pickedFreeStatId = null;
         gpAimDirX = 1; gpAimDirY = 0;
         gpAimSmoothX = 1; gpAimSmoothY = 0;
         prevGpBtnPressed.length = 0;
@@ -8576,6 +9274,7 @@
 
     window.onload = function() {
         initUiSfx();
+        applyGraphicsFromStorageOnStartup();
         playLogoSplash();
     };
 

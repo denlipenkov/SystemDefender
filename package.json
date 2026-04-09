@@ -20,7 +20,8 @@
       "src/**/*",
       "assets/**/*",
       "main.js",
-      "preload.js"
+      "preload.js",
+      "node_modules/pixi.js/**/*"
     ],
     "win": {
       "target": "nsis",
@@ -42,9 +43,12 @@
       "installerHeaderIcon": "assets/icon.ico"
     }
   },
+  "dependencies": {
+    "pixi.js": "^8.6.6"
+  },
   "devDependencies": {
     "audio-decode": "^2.2.3",
-    "electron": "^34.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1"
   }
 }
