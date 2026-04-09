@@ -155,7 +155,17 @@
                 manifest = {};
             }
             buffersByFile = {};
-            const urls = [assetsBase + '/audio/track1.ogg', assetsBase + '/audio/track1.mp3'];
+            let preferOgg = false;
+            try {
+                const a = new Audio();
+                const c = a && typeof a.canPlayType === 'function'
+                    ? a.canPlayType('audio/ogg; codecs="vorbis"')
+                    : '';
+                preferOgg = !!c && c !== 'no';
+            } catch (e) { /* ignore */ }
+            const urls = preferOgg
+                ? [assetsBase + '/audio/track1.ogg', assetsBase + '/audio/track1.mp3']
+                : [assetsBase + '/audio/track1.mp3', assetsBase + '/audio/track1.ogg'];
             let decoded = null;
             for (const u of urls) {
                 try {

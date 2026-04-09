@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "title": "System Defender — баланс (зеркало GAME_BALANCE_CONFIG в src/index.html)",
+    "sourceOfTruth": "src/index.html — объект GAME_BALANCE_CONFIG и функции getWaveHpMult / getDifficulty* / scale*",
+    "updated": "production-rebalance"
+  },
+  "waveScaling": {
+    "hpMult": "1 + w * 0.20 + w * w * 0.008",
+    "spdMult": "1 + w * 0.035"
+  },
+  "difficulty": {
+    "easy": { "enemyHp": 0.5, "enemyDamage": 0.8, "enemySpeed": 0.9, "bitLoot": 5, "powerupChanceFactor": 3 },
+    "normal": { "enemyHp": 1, "enemyDamage": 1, "enemySpeed": 1, "bitLoot": 1, "powerupChanceFactor": 1 },
+    "hardcore": { "enemyHp": 1.25, "enemyDamage": 1.3, "enemySpeed": 1.1, "bitLoot": 1, "powerupChanceFactor": 0.66666667, "abilityCostMult": 1.5 },
+    "storageKey": "sysDefDifficulty",
+    "notes": "bitLoot только на подбор битов с пола; награды боссов без множителя. powerupChanceFactor умножает powerupChanceOnKill и дроп 0.08 в mass kill."
+  },
+  "damage": {
+    "contactRamScale": 0.65,
+    "exploderPlayerDamage": 28,
+    "enemyProjectileScale": 0.8,
+    "bossBodyContact": 32
+  },
+  "enemyHpBase": {
+    "basic": 6, "shooter": 7, "exploder": 5, "tank": 18,
+    "corrupt_file": 12, "proxy_bot": 15,
+    "glitch": 6.3, "trojan": 5.4, "lag_entity": 10.5,
+    "ddos": 34.5, "firewall": 18, "minelayer": 41.4, "cruiser": 51.75, "spam_node": 33,
+    "worm_enemy": 42, "encryptor": 16.5, "defrag": 29.7, "kernel_guardian": 82.5,
+    "swarm_gen0": 18, "swarm_gen1": 7.5, "swarm_gen2": 3
+  },
+  "player": {
+    "maxSpread": 4,
+    "ship3PrimaryDmg": 1.3,
+    "freeUpgrade": { "dmgMult": 1.18, "spdMult": 1.12, "hpFlat": 30 }
+  },
+  "economy": {
+    "lootGuaranteeEvery": 3,
+    "bonusDropChance": 0.2,
+    "powerupChanceOnKill": 0.08,
+    "bossRewards": { "3": 120, "6": 240, "9": 360, "12": 500 },
+    "pickupValue": "1 + player.bitBonus",
+    "lootMultAppliesTo": "pickup collection (addGameplayBits); boss rewards use addRawBits"
+  },
+  "abilityUpgradeCostPow": 1.35,
+  "spawn": {
+    "bossInterval": 150,
+    "nonBossFormula": "max(minInterval, 60 - wave * baseMinusPerWave)",
+    "minInterval": 15,
+    "baseMinusPerWave": 3
+  },
+  "boss": {
+    "hpFormula": "floor((hpBase + currentWave * hpPerWave) * waveFactor)",
+    "hpBase": 260,
+    "hpPerWave": 80,
+    "waveFactor": { "3": 1, "6": 1.15, "9": 1.35, "12": 1.55 },
+    "fortressHpMult": 1.3
+  },
+  "validationNotes": "TTK ориентиры: ранние волны 0.5–1s, средние 1–1.5s, поздние 1.5–2s, босс 35–60s; 5–8 ошибок — проверять maxHp и средний урон. Ручной прогон 1–3 / 6–7 / 11–12 обязателен после изменений."
+}
