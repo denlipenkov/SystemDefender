@@ -1555,7 +1555,11 @@
         playTone: (f, type, dur, vol, slide = 0) => {
             if (!audioCtx) return; const t = audioCtx.currentTime;
             const osc = audioCtx.createOscillator(); osc.type = type; const gain = audioCtx.createGain();
-            osc.frequency.setValueAtTime(f, t); if (slide) osc.frequency.exponentialRampToValueAtTime(f/slide, t + dur);
+            osc.frequency.setValueAtTime(f, t);
+            if (slide && slide !== 0) {
+                const target = f / slide;
+                if (target > 0) osc.frequency.exponentialRampToValueAtTime(target, t + dur);
+            }
             gain.gain.setValueAtTime(vol, t); gain.gain.exponentialRampToValueAtTime(0.01, t + dur);
             osc.connect(gain); gain.connect(sfxGain); osc.start(t); osc.stop(t + dur);
         },
@@ -4363,6 +4367,7 @@
                 sfx.playTone(600, 'square', 0.2, 0.15, 2); this.spaceCd = this.spaceMaxCd; createParticles(this.x, this.y, 15, GAME_THEME.gold); floatingTexts.push(new FloatingText(this.x, this.y - 30, `🚀×${count}`, GAME_THEME.gold));
             } else if (this.classId === 2) {
                 // LASER BEAM ability — КД стартует после окончания лазера
+                if (this.laserActive) return; // блокировка при зажатии пробела
                 this.laserActive = true;
                 this.miniTurretActive = true;
                 this.miniTurretCd = 18;
@@ -6624,10 +6629,21 @@
     }
 
     class PowerUp {
-        constructor(x, y) { 
-            this.x = x; this.y = y; this.active = true; this.life = 400; 
-            const types = [ { type: 'heal', char: '+', color: GAME_THEME.dangerHot }, { type: 'shield', char: 'O', color: GAME_THEME.neon }, { type: 'magnet', char: 'U', color: GAME_THEME.magenta }, { type: 'boost', char: '>>', color: GAME_THEME.gold }, { type: 'weapon', char: '*', color: GAME_THEME.gold } ];
-            let rand = types[Math.floor(Math.random() * types.length)]; this.type = rand.type; this.char = rand.char; this.color = rand.color;
+        constructor(x, y, type) {
+            this.x = x; this.y = y; this.active = true; this.life = 400;
+            const cfg = {
+                heal: { char: '+', color: GAME_THEME.dangerHot },
+                shield: { char: 'O', color: GAME_THEME.neon },
+                magnet: { char: 'U', color: GAME_THEME.magenta },
+                boost: { char: '>>', color: GAME_THEME.gold },
+                weapon: { char: '*', color: GAME_THEME.gold },
+                core_weapon: { char: '◆', color: '#d966ff' },
+                core_emp: { char: '⚡', color: '#48e0f8' }
+            };
+            const c = cfg[type] || cfg.heal;
+            this.type = type || 'heal';
+            this.char = c.char;
+            this.color = c.color;
             this.spin = Math.random() * Math.PI * 2;
         }
         update() {
@@ -6637,11 +6653,14 @@
             const pullRange = player.magnetTimer > 0 ? 900 : 140;
             if (dist < pullRange) { this.x += (player.x - this.x) * 0.12; this.y += (player.y - this.y) * 0.12; }
 
-            if (dist < 26) { 
+            if (dist < 26) {
                 this.active = false;
                 sfx.powerup();
                 addToInv(this.type, 1, player ? player.classId : 1);
-                floatingTexts.push(new FloatingText(player.x, player.y - 20, `+1 ${this.type.toUpperCase()}`, this.color));
+                let label = this.type.toUpperCase();
+                if (this.type === 'core_weapon') label = 'ОРУЖИЕ ЯДРА';
+                if (this.type === 'core_emp') label = 'ЭМИ ЯДРА';
+                floatingTexts.push(new FloatingText(player.x, player.y - 20, `+1 ${label}`, this.color));
             }
         }
         draw() { 
@@ -7140,7 +7159,30 @@
         const val = 1 + (player ? player.bitBonus : 0);
         pickups.push(new Pickup(x, y, val));
     }
-    /** Предсказуемый дроп: гарантия каждые N убийств + 20% бонус; powerup отдельно */
+    /** Выбор типа поверапа в зависимости от типа уровня */
+    function pickPowerUpType() {
+        if (isDefenseActive) {
+            // Защита ядра: обычные + core_weapon/core_emp
+            const r = Math.random();
+            if (r < 0.20) return 'heal';
+            if (r < 0.35) return 'shield';
+            if (r < 0.50) return 'weapon';
+            if (r < 0.65) return 'boost';
+            if (r < 0.80) return 'magnet';
+            if (r < 0.90) return 'core_weapon';
+            return 'core_emp';
+        } else {
+            // Обычные уровни и боссы: стандартные 5 типов
+            const r = Math.random();
+            if (r < 0.25) return 'heal';
+            if (r < 0.45) return 'shield';
+            if (r < 0.65) return 'weapon';
+            if (r < 0.82) return 'boost';
+            return 'magnet';
+        }
+    }
+
+    /** Предсказуемый дроп: гарантия каждые N убийств + бонус; powerup отдельно */
     function registerEnemyKillForLoot(x, y) {
         killsSinceLoot++;
         if (killsSinceLoot >= GAME_BALANCE_CONFIG.economy.lootGuaranteeEvery) {
@@ -7150,7 +7192,10 @@
             spawnBitPickupAt(x, y);
         }
         const pupChance = GAME_BALANCE_CONFIG.economy.powerupChanceOnKill * getDifficultyPowerupChanceFactor();
-        if (Math.random() < pupChance) powerups.push(new PowerUp(x, y));
+        if (Math.random() < pupChance) {
+            const type = pickPowerUpType();
+            powerups.push(new PowerUp(x, y, type));
+        }
 
         // Defense-only: two extra possible upgrades on top of normal drops (once each per defense wave)
         if (isDefenseActive && defenseCore) {
@@ -7178,7 +7223,10 @@
     function dropLootMassKillNoCounter(x, y) {
         const val = 1 + (player ? player.bitBonus : 0);
         if (Math.random() < 0.35) pickups.push(new Pickup(x, y, val));
-        if (Math.random() < 0.08 * getDifficultyPowerupChanceFactor()) powerups.push(new PowerUp(x, y));
+        if (Math.random() < 0.08 * getDifficultyPowerupChanceFactor()) {
+            const type = pickPowerUpType();
+            powerups.push(new PowerUp(x, y, type));
+        }
     }
     
 
@@ -7221,6 +7269,9 @@
         currentStatChoices = common.sort(() => 0.5 - Math.random()).slice(0, 3);
     }
 
+    // Максимальный уровень для способностей
+    const MAX_ABILITY_LEVEL = 12;
+
     function getAbilityUpgrades() {
         const baseCosts = { space_lvl: 12, shift_lvl: 10, cd_space: 10, dmg_space: 16, mine_dmg: 14, chain_count: 15 };
         const multiplier = GAME_BALANCE_CONFIG.abilityUpgradeCostPow;
@@ -7251,8 +7302,9 @@
                 (id === 'mine_dmg' ? player.mineDmgLvl :
                 (id === 'dmg_space' ? dmgSpaceLevel :
                 (id === 'chain_count' ? player.chainCountLvl : player.missileDmgLvl)))));
+            const isMaxed = level >= MAX_ABILITY_LEVEL;
             const cost = Math.floor((baseCosts[id] || 15) * Math.pow(multiplier, level) * getDifficultyAbilityCostMult());
-            return { id: id, title: aNames[cId][id], desc: descFor(cId, id), color: aColors[id], bitsCost: cost, level: level };
+            return { id: id, title: aNames[cId][id], desc: isMaxed ? 'МАКСИМУМ' : descFor(cId, id), color: aColors[id], bitsCost: cost, level: level, isMaxed: isMaxed };
         });
     }
 
@@ -9095,10 +9147,23 @@
         trackGainNode = null;
         bgmPregainA = null;
         bgmPregainB = null;
-        noiseBuffer = null;
+        // Очистка аудио-контекста — предотвращаем утечку при рестартах
+        if (audioCtx && audioCtx.state !== 'closed') {
+            try { audioCtx.close(); } catch (e) { /* ignore */ }
+        }
         musicGain = null;
         sfxGain = null;
         audioCtx = null;
+
+        // Очистка Pixi.js презентации — освобождаем GPU-ресурсы
+        if (typeof battlePresentation !== 'undefined' && battlePresentation) {
+            try { battlePresentation.destroy(); } catch (e) { /* ignore */ }
+            battlePresentation = null;
+        }
+
+        // Сброс флагов дропа защиты ядра
+        defenseKeyDropped = false; defenseEmpDropped = false; defenseKillsThisWave = 0;
+
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         setTimeout(() => initMenu(), 140);
     }
@@ -9164,7 +9229,7 @@
         }, true);
     }
 
-    function startGame() {
+    function startGame(skipWaveStart) {
         deathBgmTriggered = false;
         if (menuAnimId) { cancelAnimationFrame(menuAnimId); menuAnimId = null; }
         runUiTransition('fade');
@@ -9174,7 +9239,7 @@
             document.getElementById('settings-screen').classList.add('hidden');
             document.getElementById('ui-layer').style.display = 'block';
         }, 90);
-        player = new Player(chosenClassId); 
+        player = new Player(chosenClassId);
         bullets = []; enemyBullets = []; enemies = []; particles = []; pickups = []; powerups = []; walls = []; traces = []; portals = []; telegraphs = []; mines = []; floatingTexts = []; lightnings = []; chainLightnings = []; networkEffects = [];
         bits = 0; currentWave = 1; isUpgrading = false; isPaused = false;
         killsSinceLoot = 0;
@@ -9186,18 +9251,19 @@
         runOneLifeActive = isOneLifeSettingOn();
         const uiLayer = document.getElementById('ui-layer');
         if (uiLayer) uiLayer.classList.toggle('hardcore-hud-min', gameDifficulty === 'hardcore');
-        startNextWave(); loop();
+        if (!skipWaveStart) {
+            startNextWave();
+        }
+        loop();
     }
 
     function startGameFromWave(wave, checkpoint) {
-        startGame();
+        const w = Math.max(1, Math.min(MAX_WAVES, parseInt(wave, 10) || 1));
+        currentWave = w;
+        startGame(true); // skip automatic wave start — we set currentWave above
         // Restore checkpoint (bits + ship upgrades) if provided
         if (checkpoint && typeof checkpoint.bits === 'number') bits = Math.max(0, Math.floor(checkpoint.bits));
         if (checkpoint && checkpoint.player) applySnapshotToPlayer(player, checkpoint.player);
-
-        // startGame() already called startNextWave() for wave=1, so jump to desired sector
-        const w = Math.max(1, Math.min(MAX_WAVES, parseInt(wave, 10) || 1));
-        currentWave = w;
         startNextWave();
     }
 
@@ -9289,7 +9355,12 @@
             const isAltEnter = event.altKey && event.key === 'Enter';
 
             if (isAltF4) {
-                window.close();
+                // Используем IPC для корректного закрытия Electron-окна
+                if (window.electronAPI && typeof window.electronAPI.quitApp === 'function') {
+                    window.electronAPI.quitApp();
+                } else {
+                    try { window.close(); } catch (e) { /* fallback */ }
+                }
             }
 
             // Alt+Enter — переключение полноэкранного режима
