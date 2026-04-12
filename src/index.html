@@ -7230,23 +7230,33 @@
     }
     
 
-    function startNextWave() { 
+    function generateStatChoices() {
+        const common = [ { id: 'dmg', title: 'УРОН +', desc: '+18% урона', color: GAME_THEME.dmgAccent }, { id: 'spd', title: 'СКОРОСТЬ +', desc: '+12% скорости', color: GAME_THEME.speedUi }, { id: 'hp', title: 'ЁМКОСТЬ +', desc: '+30 HP, лечение', color: GAME_THEME.heal }, { id: 'proj', title: 'ПОТОК +', desc: '+1 снаряд (макс 4)', color: GAME_THEME.chipAmber } ];
+        currentStatChoices = common.sort(() => 0.5 - Math.random()).slice(0, 3);
+    }
+
+    function startNextWave() {
+        // Сброс состояния окончания уровня — предотвращает мгновенный пропуск
+        levelEndSequence = null;
+        isBriefingActive = false;
+
         if (currentWave % 4 === 0) {
             isBossActive = true; bossEntity = new Boss(currentWave); enemiesToSpawn = 9999; enemiesSpawned = 0;
             isDefenseActive = false;
             document.getElementById('boss-ui').style.display = 'block';
-            defenseCore = null; defenseGenerators = []; defenseTimer = 0; defenseTimerMax = 0;
+            defenseCore = null; defenseGenerators = []; defenseLinks = []; defenseTimer = 0; defenseTimerMax = 0;
         } else if (currentWave % 4 === 3) {
             isBossActive = false; bossEntity = null; enemiesSpawned = 0; enemiesToSpawn = 9999;
             isDefenseActive = true;
             document.getElementById('boss-ui').style.display = 'none';
         } else {
-            isBossActive = false; bossEntity = null; enemiesSpawned = 0; enemiesToSpawn = 6 + (currentWave * 3); 
+            isBossActive = false; bossEntity = null; enemiesSpawned = 0; enemiesToSpawn = 6 + (currentWave * 3);
             isDefenseActive = false;
             document.getElementById('boss-ui').style.display = 'none';
             defenseCore = null; defenseGenerators = []; defenseTimer = 0; defenseTimerMax = 0;
         }
         generateLevel(currentWave); player.x = canvas.width/2; player.y = canvas.height/2;
+        spawnTimer = 0;
         // reset defense-only systems per sector
         defenseDrops = [];
         defenseCoreTurretsActive = false;
@@ -7256,17 +7266,6 @@
         defenseEmpDropped = false;
         defenseKillsThisWave = 0;
         showBriefingForCurrentWave();
-    }
-
-    let currentStatChoices = [];
-    /** Бесплатные выборы на экране апгрейда (обычно 1, после защиты ядра — 2). */
-    let freePicksRemaining = 1;
-    let freePicksMaxThisScreen = 1;
-    let pickedFreeStatIds = [];
-
-    function generateStatChoices() {
-        const common = [ { id: 'dmg', title: 'УРОН +', desc: '+18% урона', color: GAME_THEME.dmgAccent }, { id: 'spd', title: 'СКОРОСТЬ +', desc: '+12% скорости', color: GAME_THEME.speedUi }, { id: 'hp', title: 'ЁМКОСТЬ +', desc: '+30 HP, лечение', color: GAME_THEME.heal }, { id: 'proj', title: 'ПОТОК +', desc: '+1 снаряд (макс 4)', color: GAME_THEME.chipAmber } ];
-        currentStatChoices = common.sort(() => 0.5 - Math.random()).slice(0, 3);
     }
 
     // Максимальный уровень для способностей
@@ -9249,6 +9248,9 @@
         prevGpPauseBtn = false;
         isPlaying = true;
         runOneLifeActive = isOneLifeSettingOn();
+        // Сброс состояния окончания уровня — предотвращает мгновенный пропуск
+        levelEndSequence = null;
+        isBriefingActive = false;
         const uiLayer = document.getElementById('ui-layer');
         if (uiLayer) uiLayer.classList.toggle('hardcore-hud-min', gameDifficulty === 'hardcore');
         if (!skipWaveStart) {
