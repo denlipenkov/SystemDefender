@@ -1875,11 +1875,26 @@
     // --- ИГРОВОЙ ДВИЖОК ---
     // Кадр собирается в offscreen Canvas2D; на экран выводится через Pixi (WebGPU / WebGL2).
     let canvas = document.createElement('canvas');
-    let ctx = null;
-    try {
-        ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
-    } catch (e) {}
-    if (!ctx) ctx = canvas.getContext('2d');
+    let ctx = null; // used only for legacy fallback when Pixi can't init
+    let usePixiRenderer = true;
+    let pixiReady = false;
+    function ensureLegacyCtx() {
+        if (ctx) return ctx;
+        try {
+            ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
+        } catch (e) {}
+        if (!ctx) ctx = canvas.getContext('2d');
+        return ctx;
+    }
+    function attachLegacyCanvasToDom() {
+        var mount = document.getElementById('game-view-mount');
+        if (!mount || !canvas) return;
+        canvas.style.display = 'block';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        mount.replaceChildren();
+        mount.appendChild(canvas);
+    }
     let battlePresentation = null;
     /** @type {null | Function} */
     let redrawParticlesGraphics = null;
@@ -1998,27 +2013,35 @@
     }
     resize();
     (function attachGameViewFallback() {
-        var mount = document.getElementById('game-view-mount');
-        if (!mount || !canvas) return;
-        canvas.style.display = 'block';
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        mount.appendChild(canvas);
+        // Legacy fallback (Canvas2D direct). In Pixi mode we don't attach the Canvas2D to DOM.
+        if (usePixiRenderer) return;
+        ensureLegacyCtx();
+        attachLegacyCanvasToDom();
     })();
     Promise.all([
         import('./render/battle-presentation.js'),
-        import('./render/fx-particles-pixi.js')
+        import('./render/fx-particles-pixi.js'),
+        import('./render/pixi-renderer.js')
     ]).then(function (mods) {
-        var mod = mods[0], fx = mods[1];
+        var mod = mods[0], fx = mods[1], pixiR = mods[2];
         redrawParticlesGraphics = fx.redrawParticlesGraphics;
         var mount = document.getElementById('game-view-mount');
         if (!mount || !canvas) return;
-        return mod.createBattlePresentation({ mount: mount, sourceCanvas: canvas, preference: 'webgpu' }).then(function (p) {
+        return mod.createBattlePresentation({ mount: mount, preference: 'webgpu', width: canvas.width, height: canvas.height }).then(function (p) {
             battlePresentation = p;
             battlePresentation.resize(canvas.width, canvas.height);
             try { console.info('[render] Pixi backend:', battlePresentation.getBackendLabel()); } catch (e) {}
+            try { window.__pixiRenderer = pixiR.createPixiRenderer(battlePresentation); } catch (e) { console.error('[render] pixiRenderer init failed', e); }
+            pixiReady = !!window.__pixiRenderer;
         });
-    }).catch(function (err) { console.error('[render] Pixi init failed', err); });
+    }).catch(function (err) {
+        console.error('[render] Pixi init failed', err);
+        // If WebGL/WebGPU is disabled in the environment, fall back to legacy Canvas2D path
+        usePixiRenderer = false;
+        pixiReady = false;
+        try { window.__pixiRenderer = null; } catch (e) {}
+        try { ensureLegacyCtx(); attachLegacyCanvasToDom(); } catch (e) {}
+    });
 
     let isPlaying = false, isUpgrading = false, bits = 0;
     const MAX_WAVES = 16; let currentWave = 1, enemiesToSpawn = 0, enemiesSpawned = 0;
@@ -2668,6 +2691,8 @@
     let defenseEmpPulseT = 0;
     let defenseKeyDropped = false;
     let defenseEmpDropped = false;
+    let defenseKeyDropsThisWave = 0;
+    let defenseEmpDropsThisWave = 0;
     let defenseKillsThisWave = 0;
 
     // --- PowerUp inventory (per module/ship; no auto-apply on pickup) ---
@@ -2864,9 +2889,34 @@
         if (menuActivePanel === 'settings' && settingsSection === 'controls') tickGamepadMenuHint();
         if (startVisible) {
             tickGamepadMenuNavigation();
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawMenuBackground();
-            tickMenuMatrixCanvas();
+            if (usePixiRenderer && pixiReady && battlePresentation && window.__pixiRenderer) {
+                try {
+                    window.__pixiRenderer.sync({
+                        w: canvas.width,
+                        h: canvas.height,
+                        theme: (typeof GAME_THEME !== 'undefined') ? GAME_THEME : null,
+                        now: Date.now(),
+                        player,
+                        enemies,
+                        bullets,
+                        enemyBullets,
+                        pickups,
+                        powerups,
+                        defenseDrops,
+                        walls,
+                        portals,
+                        isPlaying: false,
+                        isPaused: false
+                    });
+                } catch (e) { console.error('[render] pixi menu draw failed', e); }
+            } else {
+                ensureLegacyCtx();
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    drawMenuBackground();
+                }
+            }
+            if (!usePixiRenderer || !pixiReady) tickMenuMatrixCanvas();
             commitPresentationFrame();
             menuAnimId = requestAnimationFrame(menuLoop);
         }
@@ -7201,22 +7251,30 @@
         if (isDefenseActive && defenseCore) {
             defenseKillsThisWave++;
             const coreHue = (defenseCore && typeof defenseCore.hue === 'number') ? defenseCore.hue : 280;
-            // Guarantee so players actually see them: after N kills on defense
-            if (!defenseKeyDropped && defenseKillsThisWave >= 12) {
+            // Special defense drops should be repeatable. We cap per sector to avoid spam.
+            const maxKeyPerWave = 3;
+            const maxEmpPerWave = 3;
+            const canDropKey = defenseKeyDropsThisWave < maxKeyPerWave;
+            const canDropEmp = defenseEmpDropsThisWave < maxEmpPerWave;
+
+            // Guaranteed milestones so players see them, then RNG afterwards.
+            if (canDropKey && defenseKillsThisWave >= 10 && (defenseKillsThisWave % 12 === 10)) {
                 defenseDrops.push(new DefenseDrop(x, y, 'core_key', (coreHue + 55) % 360));
-                defenseKeyDropped = true;
-            } else if (!defenseEmpDropped && defenseKillsThisWave >= 22) {
+                defenseKeyDropsThisWave++;
+            } else if (canDropEmp && defenseKillsThisWave >= 16 && (defenseKillsThisWave % 14 === 2)) {
                 defenseDrops.push(new DefenseDrop(x, y, 'emp', (coreHue + 105) % 360));
-                defenseEmpDropped = true;
-            }
-            // Plus some RNG earlier (higher chance than before)
-            else if (!defenseKeyDropped && Math.random() < 0.09) {
+                defenseEmpDropsThisWave++;
+            } else if (canDropKey && Math.random() < 0.07) {
                 defenseDrops.push(new DefenseDrop(x, y, 'core_key', (coreHue + 55) % 360));
-                defenseKeyDropped = true;
-            } else if (!defenseEmpDropped && Math.random() < 0.07) {
+                defenseKeyDropsThisWave++;
+            } else if (canDropEmp && Math.random() < 0.06) {
                 defenseDrops.push(new DefenseDrop(x, y, 'emp', (coreHue + 105) % 360));
-                defenseEmpDropped = true;
+                defenseEmpDropsThisWave++;
             }
+
+            // Keep old booleans for compatibility (no longer used as gate)
+            defenseKeyDropped = defenseKeyDropped || defenseKeyDropsThisWave > 0;
+            defenseEmpDropped = defenseEmpDropped || defenseEmpDropsThisWave > 0;
         }
     }
     /** Чит/протокол: старый RNG, без счётчика гарантии */
@@ -7264,6 +7322,8 @@
         defenseEmpPulseT = 0;
         defenseKeyDropped = false;
         defenseEmpDropped = false;
+        defenseKeyDropsThisWave = 0;
+        defenseEmpDropsThisWave = 0;
         defenseKillsThisWave = 0;
         showBriefingForCurrentWave();
     }
@@ -7322,13 +7382,13 @@
         const sellEl = document.getElementById('powerup-sell');
         const inv = player ? getShipInv(player.classId) : getShipInv(1);
         const prices = { heal: 8, shield: 10, weapon: 12, boost: 10, magnet: 9 };
-        const row = (t, label, hue) => {
+        const row = (t, hue) => {
             const c = inv[t] || 0;
             if (c <= 0) return '';
             const p = prices[t] || 8;
             return `<div class="upgrade-sell-row" style="--sell-accent:hsla(${hue},85%,62%,0.98);">
                       <div class="upgrade-sell-main">
-                        <div class="upgrade-sell-icon" aria-hidden="true">${label}</div>
+                        <div class="upgrade-sell-icon" aria-hidden="true">${powerupIconSvg(t, `hsla(${hue},85%,62%,0.98)`)}</div>
                         <div class="upgrade-sell-meta">${t.toUpperCase()} × <b>${c}</b> · <span class="upgrade-sell-price">${p}b</span></div>
                       </div>
                       <button type="button" class="upgrade-btn" onclick="sellPowerup('${t}')">ПРОДАТЬ 1</button>
@@ -7336,11 +7396,11 @@
         };
         if (sellEl) {
             const rows =
-                row('heal','❤','10') +
-                row('shield','⛨','190') +
-                row('weapon','✶','28') +
-                row('boost','»','55') +
-                row('magnet','⧉','285');
+                row('heal','10') +
+                row('shield','190') +
+                row('weapon','28') +
+                row('boost','55') +
+                row('magnet','285');
             sellEl.innerHTML = rows || `<div class="upgrade-sell-empty">Нет поверапов для продажи.</div>`;
         }
 
@@ -7366,10 +7426,15 @@
         const abilities = getAbilityUpgrades();
         abilities.forEach(upg => {
             let item = document.createElement('div'); item.className = 'ability-upgrade-item';
-            const canAfford = bits >= upg.bitsCost; if (!canAfford) item.classList.add('cant-afford');
-            item.style.setProperty('--ability-accent', canAfford ? upg.color : 'rgba(95, 100, 115, 0.95)');
-            item.innerHTML = `<div class="ability-upgrade-left"><div class="ability-upgrade-title">${upg.title}</div><div class="ability-upgrade-desc">${upg.desc}</div><div class="ability-upgrade-level">Уровень: ${upg.level}</div></div><div class="ability-upgrade-cost">${upg.bitsCost} БИТ</div>`;
-            item.onclick = () => { if (!canAfford) { floatingTexts.push(new FloatingText(player.x, player.y, `НУЖНО ${upg.bitsCost} БИТ`, GAME_THEME.dangerHot)); return; } applyAbilityUpgrade(upg.id, upg.bitsCost); };
+            const canBuy = !upg.isMaxed && bits >= upg.bitsCost;
+            if (!canBuy) item.classList.add('cant-afford');
+            item.style.setProperty('--ability-accent', canBuy ? upg.color : 'rgba(95, 100, 115, 0.95)');
+            item.innerHTML = `<div class="ability-upgrade-left"><div class="ability-upgrade-title">${upg.title}</div><div class="ability-upgrade-desc">${upg.desc}</div><div class="ability-upgrade-level">Уровень: ${upg.level}${upg.isMaxed ? ` / ${MAX_ABILITY_LEVEL}` : ''}</div></div><div class="ability-upgrade-cost">${upg.isMaxed ? '—' : `${upg.bitsCost} БИТ`}</div>`;
+            item.onclick = () => {
+                if (upg.isMaxed) return;
+                if (bits < upg.bitsCost) { floatingTexts.push(new FloatingText(player.x, player.y, `НУЖНО ${upg.bitsCost} БИТ`, GAME_THEME.dangerHot)); return; }
+                applyAbilityUpgrade(upg.id, upg.bitsCost);
+            };
             abContainer.appendChild(item);
         });
         gpMenuNavCtx = '';
@@ -7408,21 +7473,32 @@
     }
 
     function applyAbilityUpgrade(id, cost) {
+        const clampLvl = (v) => Math.max(1, Math.min(MAX_ABILITY_LEVEL, (v | 0) || 1));
+        if (id === 'space_lvl' && player.spaceLvl >= MAX_ABILITY_LEVEL) return;
+        if (id === 'shift_lvl' && player.shiftLvl >= MAX_ABILITY_LEVEL) return;
+        if (id === 'cd_space' && player.cdLvl >= MAX_ABILITY_LEVEL) return;
+        if (id === 'mine_dmg' && player.mineDmgLvl >= MAX_ABILITY_LEVEL) return;
+        if (id === 'dmg_space') {
+            const cur = (player.classId === 3) ? player.dmgSpaceLvl : player.missileDmgLvl;
+            if (cur >= MAX_ABILITY_LEVEL) return;
+        }
+        if (id === 'chain_count' && player.chainCountLvl >= MAX_ABILITY_LEVEL) return;
+
         bits -= cost; sfx.levelUp();
-        if (id === 'space_lvl') { player.spaceLvl++; floatingTexts.push(new FloatingText(player.x, player.y, player.classId === 2 ? "ПЕРЕГРУЗ+" : "SPC УЛУЧШЕНО", GAME_THEME.brightAmber)); }
-        if (id === 'shift_lvl') { player.shiftLvl++; if (player.classId === 1) player.warpTimer = 12 + (player.shiftLvl - 1) * 6; if (player.classId === 2 || player.classId === 3) player.boostFuelCost *= 0.8; floatingTexts.push(new FloatingText(player.x, player.y, "SHF УЛУЧШЕНО", GAME_THEME.neon)); }
+        if (id === 'space_lvl') { player.spaceLvl = clampLvl(player.spaceLvl + 1); floatingTexts.push(new FloatingText(player.x, player.y, player.classId === 2 ? "ПЕРЕГРУЗ+" : "SPC УЛУЧШЕНО", GAME_THEME.brightAmber)); }
+        if (id === 'shift_lvl') { player.shiftLvl = clampLvl(player.shiftLvl + 1); if (player.classId === 1) player.warpTimer = 12 + (player.shiftLvl - 1) * 6; if (player.classId === 2 || player.classId === 3) player.boostFuelCost *= 0.8; floatingTexts.push(new FloatingText(player.x, player.y, "SHF УЛУЧШЕНО", GAME_THEME.neon)); }
         if (id === 'cd_space') {
-            player.cdLvl++;
+            player.cdLvl = clampLvl(player.cdLvl + 1);
             if (player.classId === 2) player.spaceMaxCd = Math.max(360, Math.floor(player.spaceMaxCd * 0.88));
             else player.spaceMaxCd = Math.max(40, Math.floor(player.spaceMaxCd * 0.85));
             floatingTexts.push(new FloatingText(player.x, player.y, "КД SPC", GAME_THEME.brightAmber));
         }
         if (id === 'dmg_space') {
-            if (player.classId === 3) { player.dmgSpaceLvl++; floatingTexts.push(new FloatingText(player.x, player.y, "УРОН СЕТИ +", GAME_THEME.dangerHot)); }
-            else { player.missileDmgLvl++; floatingTexts.push(new FloatingText(player.x, player.y, "УРОН РАКЕТ УВЕЛИЧЕН", GAME_THEME.dangerHot)); }
+            if (player.classId === 3) { player.dmgSpaceLvl = clampLvl(player.dmgSpaceLvl + 1); floatingTexts.push(new FloatingText(player.x, player.y, "УРОН СЕТИ +", GAME_THEME.dangerHot)); }
+            else { player.missileDmgLvl = clampLvl(player.missileDmgLvl + 1); floatingTexts.push(new FloatingText(player.x, player.y, "УРОН РАКЕТ УВЕЛИЧЕН", GAME_THEME.dangerHot)); }
         }
-        if (id === 'mine_dmg') { player.mineDmgLvl++; floatingTexts.push(new FloatingText(player.x, player.y, "УРОН МИН +", GAME_THEME.magenta)); }
-        if (id === 'chain_count') { player.chainCountLvl++; let maxTargets = Math.min(2 + (player.chainCountLvl - 1), 12); floatingTexts.push(new FloatingText(player.x, player.y, `ЦЕЛИ: ${maxTargets}`, GAME_THEME.violetGlow)); }
+        if (id === 'mine_dmg') { player.mineDmgLvl = clampLvl(player.mineDmgLvl + 1); floatingTexts.push(new FloatingText(player.x, player.y, "УРОН МИН +", GAME_THEME.magenta)); }
+        if (id === 'chain_count') { player.chainCountLvl = clampLvl(player.chainCountLvl + 1); let maxTargets = Math.min(2 + (player.chainCountLvl - 1), 12); floatingTexts.push(new FloatingText(player.x, player.y, `ЦЕЛИ: ${maxTargets}`, GAME_THEME.violetGlow)); }
         showUpgradeScreen(true);
     }
 
@@ -7549,6 +7625,58 @@
         return `<div class="powerup-item" style="--powerup-accent:${color};--powerup-pct:${pct}%;"><div class="powerup-name">${name}</div><div class="powerup-bar-bg"><div class="powerup-bar"></div></div></div>`;
     }
 
+    function powerupIconSvg(type, colorCss) {
+        const stroke = colorCss || 'currentColor';
+        const fill = 'rgba(0,0,0,0.0)';
+        // Simple inline SVGs that match names (not emoji) and can be reused in HUD/shop.
+        if (type === 'heal') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M12 21s-7-4.2-9.6-8.6C.6 9 .9 6 3.3 4.4 5.2 3.1 7.6 3.6 9.1 5c1.1 1 1.9 2.2 2.9 3.4 1-1.2 1.8-2.4 2.9-3.4 1.5-1.4 3.9-1.9 5.8-.6 2.4 1.6 2.7 4.6.9 8-2.6 4.4-9.6 8.6-9.6 8.6z"
+                    fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M12 8v6M9 11h6" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
+            </svg>`;
+        }
+        if (type === 'shield') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M12 2l8 4v7c0 5-3.5 8.6-8 9-4.5-.4-8-4-8-9V6l8-4z"
+                    fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M12 6v12" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+            </svg>`;
+        }
+        if (type === 'weapon') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M12 2l2.2 6.1 6.6.1-5.3 3.9 2 6.2-5.5-3.6-5.5 3.6 2-6.2L3.2 8.2l6.6-.1L12 2z"
+                    fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
+            </svg>`;
+        }
+        if (type === 'boost') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M4 13l8-10 8 10-8 8-8-8z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M12 8v7" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
+            </svg>`;
+        }
+        if (type === 'magnet') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M7 4v7a5 5 0 0 0 10 0V4" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
+              <path d="M7 4h4M13 4h4" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
+            </svg>`;
+        }
+        if (type === 'core_weapon') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M12 3l7 4v6c0 4.2-2.8 7.4-7 8-4.2-.6-7-3.8-7-8V7l7-4z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M8 13l4-6 4 6" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`;
+        }
+        if (type === 'core_emp') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M13 2L4 14h7l-1 8 10-14h-7l0-6z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
+            </svg>`;
+        }
+        return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <circle cx="12" cy="12" r="8" fill="${fill}" stroke="${stroke}" stroke-width="2"/>
+        </svg>`;
+    }
+
     function updateUI() {
         const hpPercent = Math.max(0, (player.hp / player.maxHp) * 100);
         const hb = document.getElementById('health-bar');
@@ -7562,29 +7690,29 @@
         const invEl = document.getElementById('combat-inventory');
         if (invEl) {
             const inv = getShipInv(player.classId);
-            const chip = (label, key, count, hue) => {
+            const chip = (type, key, count, hue) => {
                 const c = Math.max(0, Math.floor(count || 0));
                 const empty = c <= 0;
                 const hueAttr = empty ? '' : ` style="--inv-h:${hue};"`;
                 return `<div class="hud-inv-chip${empty ? ' hud-inv-chip--empty' : ''}"${hueAttr}>
                           <span class="hud-inv-key">${key}</span>
-                          <span class="hud-inv-ico">${label}</span>
+                          <span class="hud-inv-ico">${powerupIconSvg(type, empty ? 'rgba(150,170,190,0.55)' : `hsla(${hue},85%,62%,0.98)`)}</span>
                           <span class="hud-inv-count">${c}</span>
                         </div>`;
             };
             let html = '';
-            html += chip('❤', '1', inv.heal, 10);
-            html += chip('⛨', '2', inv.shield, 190);
-            html += chip('✶', '3', inv.weapon, 28);
-            html += chip('»', '4', inv.boost, 55);
-            html += chip('⧉', '5', inv.magnet, 285);
+            html += chip('heal', '1', inv.heal, 10);
+            html += chip('shield', '2', inv.shield, 190);
+            html += chip('weapon', '3', inv.weapon, 28);
+            html += chip('boost', '4', inv.boost, 55);
+            html += chip('magnet', '5', inv.magnet, 285);
             if (isDefenseActive) {
-                html += chip('✦', 'Q', inv.core_weapon, 300);
-                html += chip('ϟ', 'E', inv.core_emp, 200);
+                html += chip('core_weapon', 'Q', inv.core_weapon, 300);
+                html += chip('core_emp', 'E', inv.core_emp, 200);
             } else {
                 // show defense slots as greyed-out placeholders outside defense
-                html += chip('✦', 'Q', 0, 300);
-                html += chip('ϟ', 'E', 0, 200);
+                html += chip('core_weapon', 'Q', 0, 300);
+                html += chip('core_emp', 'E', 0, 200);
             }
             invEl.innerHTML = html;
         }
@@ -8486,6 +8614,39 @@
 
     function draw() { 
         if(isPaused) return; 
+        if (usePixiRenderer && pixiReady && battlePresentation && window.__pixiRenderer) {
+            // Pixi path: render directly on GPU without Canvas2D.
+            try {
+                window.__pixiRenderer.sync({
+                    w: canvas.width,
+                    h: canvas.height,
+                    theme: (typeof GAME_THEME !== 'undefined') ? GAME_THEME : null,
+                    now: Date.now(),
+                    player,
+                    enemies,
+                    bullets,
+                    enemyBullets,
+                    pickups,
+                    powerups,
+                    defenseDrops,
+                    walls,
+                    portals,
+                    isPlaying,
+                    isPaused
+                });
+                if (redrawParticlesGraphics && battlePresentation.particleFxGraphics) {
+                    redrawParticlesGraphics(battlePresentation.particleFxGraphics, { particles, PERF, activeEnemyN: countActiveEnemiesQuick() });
+                } else if (battlePresentation.particleFxGraphics) {
+                    battlePresentation.particleFxGraphics.clear();
+                }
+                commitPresentationFrame();
+            } catch (e) {
+                console.error('[render] pixi draw failed', e);
+            }
+            return;
+        }
+
+        ensureLegacyCtx();
         drawCyberBackground();
         if (!isPlaying) {
             if (battlePresentation && battlePresentation.particleFxGraphics) battlePresentation.particleFxGraphics.clear();
@@ -9261,8 +9422,8 @@
 
     function startGameFromWave(wave, checkpoint) {
         const w = Math.max(1, Math.min(MAX_WAVES, parseInt(wave, 10) || 1));
+        startGame(true); // skip automatic wave start — we set currentWave below
         currentWave = w;
-        startGame(true); // skip automatic wave start — we set currentWave above
         // Restore checkpoint (bits + ship upgrades) if provided
         if (checkpoint && typeof checkpoint.bits === 'number') bits = Math.max(0, Math.floor(checkpoint.bits));
         if (checkpoint && checkpoint.player) applySnapshotToPlayer(player, checkpoint.player);

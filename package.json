@@ -6,7 +6,7 @@
   "scripts": {
     "analyze-music": "node tools/analyze-music-segments.mjs",
     "start": "electron .",
-    "start:dev": "ELECTRON_RUN_AS_NODE=0 electron . --dev",
+    "start:dev": "electron . --dev",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",

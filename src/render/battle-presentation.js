@@ -1,9 +1,9 @@
 /**
  * Вывод игры через PixiJS v8: предпочтение WebGPU, иначе WebGL2.
- * Кадр по-прежнему собирается в offscreen Canvas2D (ctx), затем один texture upload на GPU.
+ * Новый путь: сцена рисуется напрямую в Pixi (Graphics/Sprite), без Canvas2D texture upload.
  */
 import '../../node_modules/pixi.js/lib/environment-browser/browserAll.mjs';
-import { Application, Sprite, Texture } from '../../node_modules/pixi.js/lib/index.mjs';
+import { Application } from '../../node_modules/pixi.js/lib/index.mjs';
 import { Graphics } from '../../node_modules/pixi.js/lib/scene/graphics/shared/Graphics.mjs';
 import { attachCombatLayers } from './layers.js';
 
@@ -24,13 +24,12 @@ function resolveBackendLabel(app) {
 /**
  * @param {object} opts
  * @param {HTMLElement} opts.mount
- * @param {HTMLCanvasElement} opts.sourceCanvas — offscreen, сюда пишет ctx
  * @param {string} [opts.preference='webgpu']
  */
 export async function createBattlePresentation(opts) {
-    const { mount, sourceCanvas, preference = 'webgpu' } = opts;
-    const w = Math.max(1, sourceCanvas.width || 1);
-    const h = Math.max(1, sourceCanvas.height || 1);
+    const { mount, preference = 'webgpu', width = 1, height = 1 } = opts || {};
+    const w = Math.max(1, width | 0);
+    const h = Math.max(1, height | 0);
 
     const app = new Application();
     await app.init({
@@ -52,21 +51,12 @@ export async function createBattlePresentation(opts) {
         verticalAlign: 'top',
     });
 
-    let texture = Texture.from(sourceCanvas);
-    const sprite = new Sprite(texture);
-    sprite.position.set(0, 0);
-    sprite.width = w;
-    sprite.height = h;
-
     const layers = attachCombatLayers(app.stage);
-    layers.gameRoot.addChild(sprite);
     const particleFxGraphics = new Graphics();
     layers.fxLayer.addChild(particleFxGraphics);
 
     const presentation = {
         app,
-        get texture() { return texture; },
-        sprite,
         layers,
         particleFxGraphics,
         getBackendLabel: () => resolveBackendLabel(app),
@@ -74,29 +64,13 @@ export async function createBattlePresentation(opts) {
             const nw = Math.max(1, newW | 0);
             const nh = Math.max(1, newH | 0);
             app.renderer.resize(nw, nh);
-            sprite.width = nw;
-            sprite.height = nh;
-            const sw = sourceCanvas.width;
-            const sh = sourceCanvas.height;
-            if (sw !== nw || sh !== nh) {
-                try { texture.destroy(true); } catch (e) { /* ignore */ }
-                texture = Texture.from(sourceCanvas);
-                sprite.texture = texture;
-            }
-            if (texture.source && typeof texture.source.update === 'function') {
-                texture.source.update();
-            }
             app.render();
         },
         commitFrame() {
-            if (texture.source && typeof texture.source.update === 'function') {
-                texture.source.update();
-            }
             app.render();
         },
         destroy() {
             try {
-                texture.destroy(true);
                 app.destroy(true, { children: true, texture: true });
             } catch (e) { /* ignore */ }
         },

@@ -7,6 +7,46 @@ const path = require('path');
 // Флаг — запущены ли мы в режиме разработки
 const isDev = process.argv.includes('--dev');
 
+// Явно задаём userData/кэши в доступной папке (на Windows это иногда ломается из‑за прав/антивируса).
+try {
+  if (process.platform === 'win32') {
+    const base = process.env.LOCALAPPDATA || app.getPath('appData');
+    const userDataDir = path.join(base, 'SystemDefender');
+    app.setPath('userData', userDataDir);
+    app.commandLine.appendSwitch('disk-cache-dir', path.join(userDataDir, 'Cache'));
+    app.commandLine.appendSwitch('gpu-disk-cache-dir', path.join(userDataDir, 'GPUCache'));
+  }
+} catch (e) {
+  // ignore
+}
+
+/**
+ * Аппаратное ускорение (GPU) для Windows.
+ *
+ * В Electron рендер и так идёт через GPU при нормальных драйверах, но:
+ * - GPU может оказаться в блоклисте/софт-режиме
+ * - пользователи могут иметь нестандартные параметры запуска/окружение
+ *
+ * Эти свитчи направлены на "включить то, что обычно включено" и улучшить
+ * шанс на WebGPU/WebGL2 вместо software rasterizer.
+ */
+try {
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('enable-zero-copy');
+  app.commandLine.appendSwitch('disable-software-rasterizer');
+  // Windows: принудительно использовать ANGLE/D3D11 (часто спасает, когда WebGL/WebGPU выключены).
+  if (process.platform === 'win32') {
+    app.commandLine.appendSwitch('use-gl', 'angle');
+    app.commandLine.appendSwitch('use-angle', 'd3d11');
+  }
+  // Попросить Chromium включить WebGPU/Vulkan, если они доступны.
+  // (Если фича уже включена по умолчанию — это не мешает.)
+  app.commandLine.appendSwitch('enable-features', 'WebGPU,Vulkan');
+} catch (e) {
+  // ignore
+}
+
 function applyWindowMode(win, opts) {
   if (!win || win.isDestroyed()) return;
   const mode = opts && opts.mode;
@@ -69,10 +109,28 @@ function createGameWindow() {
 let mainWindow = null;
 
 app.whenReady().then(() => {
+  try {
+    const st = app.getGPUFeatureStatus && app.getGPUFeatureStatus();
+    if (st) console.info('[gpu] feature status:', st);
+  } catch (e) {
+    // ignore
+  }
+
   mainWindow = createGameWindow();
 
   ipcMain.handle('app-quit', () => {
     app.quit();
+  });
+
+  ipcMain.handle('gpu-status', async () => {
+    const featureStatus = (app.getGPUFeatureStatus && app.getGPUFeatureStatus()) || null;
+    let gpuInfoBasic = null;
+    try {
+      if (app.getGPUInfo) gpuInfoBasic = await app.getGPUInfo('basic');
+    } catch (e) {
+      gpuInfoBasic = null;
+    }
+    return { featureStatus, gpuInfoBasic };
   });
 
   ipcMain.handle('window-set-mode', (event, opts) => {
