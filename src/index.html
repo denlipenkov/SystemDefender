@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' file:; connect-src 'self'; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'self';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Defender: Cyber Warfare</title>
     <link rel="icon" href="data:,">
@@ -195,7 +196,7 @@
 
             <div class="upgrade-3col" aria-label="Итоги сектора">
                 <div class="upgrade-col ui-tech-corners">
-                    <div class="upgrade-section-title">Продажа поверапов <span class="upgrade-tag upgrade-tag--bits">за биты</span></div>
+                    <div class="upgrade-section-title">Торговля улучшениями <span class="upgrade-tag upgrade-tag--bits">за биты</span></div>
                     <div id="powerup-sell"></div>
                 </div>
                 <div class="upgrade-col ui-tech-corners">
@@ -1895,6 +1896,12 @@
         mount.replaceChildren();
         mount.appendChild(canvas);
     }
+    function canUseWebGL() {
+        try {
+            const t = document.createElement('canvas');
+            return !!(t.getContext('webgl2') || t.getContext('webgl'));
+        } catch (e) { return false; }
+    }
     let battlePresentation = null;
     /** @type {null | Function} */
     let redrawParticlesGraphics = null;
@@ -2018,30 +2025,40 @@
         ensureLegacyCtx();
         attachLegacyCanvasToDom();
     })();
-    Promise.all([
-        import('./render/battle-presentation.js'),
-        import('./render/fx-particles-pixi.js'),
-        import('./render/pixi-renderer.js')
-    ]).then(function (mods) {
-        var mod = mods[0], fx = mods[1], pixiR = mods[2];
-        redrawParticlesGraphics = fx.redrawParticlesGraphics;
-        var mount = document.getElementById('game-view-mount');
-        if (!mount || !canvas) return;
-        return mod.createBattlePresentation({ mount: mount, preference: 'webgpu', width: canvas.width, height: canvas.height }).then(function (p) {
-            battlePresentation = p;
-            battlePresentation.resize(canvas.width, canvas.height);
-            try { console.info('[render] Pixi backend:', battlePresentation.getBackendLabel()); } catch (e) {}
-            try { window.__pixiRenderer = pixiR.createPixiRenderer(battlePresentation); } catch (e) { console.error('[render] pixiRenderer init failed', e); }
-            pixiReady = !!window.__pixiRenderer;
+    (function initPixiIfPossible() {
+        if (!usePixiRenderer) return;
+        // If WebGL is disabled, don't attempt Pixi ESM (it will throw bare-module specifier errors).
+        if (!canUseWebGL()) {
+            usePixiRenderer = false;
+            pixiReady = false;
+            ensureLegacyCtx();
+            attachLegacyCanvasToDom();
+            return;
+        }
+        Promise.all([
+            import('./render/battle-presentation.js'),
+            import('./render/fx-particles-pixi.js'),
+            import('./render/pixi-renderer.js')
+        ]).then(function (mods) {
+            var mod = mods[0], fx = mods[1], pixiR = mods[2];
+            redrawParticlesGraphics = fx.redrawParticlesGraphics;
+            var mount = document.getElementById('game-view-mount');
+            if (!mount || !canvas) return;
+            return mod.createBattlePresentation({ mount: mount, preference: 'webgpu', width: canvas.width, height: canvas.height }).then(function (p) {
+                battlePresentation = p;
+                battlePresentation.resize(canvas.width, canvas.height);
+                try { window.__pixiRenderer = pixiR.createPixiRenderer(battlePresentation); } catch (e) {}
+                pixiReady = !!window.__pixiRenderer;
+                if (!pixiReady) throw new Error('pixiRenderer not ready');
+            });
+        }).catch(function () {
+            // Fail silently, fall back to legacy Canvas2D path
+            usePixiRenderer = false;
+            pixiReady = false;
+            try { window.__pixiRenderer = null; } catch (e) {}
+            try { ensureLegacyCtx(); attachLegacyCanvasToDom(); } catch (e) {}
         });
-    }).catch(function (err) {
-        console.error('[render] Pixi init failed', err);
-        // If WebGL/WebGPU is disabled in the environment, fall back to legacy Canvas2D path
-        usePixiRenderer = false;
-        pixiReady = false;
-        try { window.__pixiRenderer = null; } catch (e) {}
-        try { ensureLegacyCtx(); attachLegacyCanvasToDom(); } catch (e) {}
-    });
+    })();
 
     let isPlaying = false, isUpgrading = false, bits = 0;
     const MAX_WAVES = 16; let currentWave = 1, enemiesToSpawn = 0, enemiesSpawned = 0;
@@ -2683,6 +2700,51 @@
     window.addEventListener('mouseup', e => mouse.isDown = false);
 
     let player, bullets = [], enemies = [], enemyBullets = [], particles = [], pickups = [], powerups = [], defenseDrops = [], walls = [], traces = [], floatingTexts = [], portals = [], mines = [], telegraphs = [], lightnings = [], chainLightnings = [], networkEffects = [];
+
+    // --- Network (Ship 3) spatial grid (perf) ---
+    // Built only when net projectiles/effects are active.
+    let _netGrid = null;
+    let _netGridCols = 0;
+    let _netGridRows = 0;
+    const _NET_CELL = 140; // tuned for capture radius 350
+    function buildNetGridIfNeeded() {
+        if ((!chainLightnings || chainLightnings.length === 0) && (!networkEffects || networkEffects.length === 0)) { _netGrid = null; return; }
+        const w = canvas.width || 1, h = canvas.height || 1;
+        const cols = Math.max(1, Math.ceil(w / _NET_CELL));
+        const rows = Math.max(1, Math.ceil(h / _NET_CELL));
+        const n = cols * rows;
+        if (!_netGrid || _netGrid.length !== n) {
+            _netGrid = Array.from({ length: n }, () => []);
+        } else {
+            for (let i = 0; i < _netGrid.length; i++) _netGrid[i].length = 0;
+        }
+        _netGridCols = cols; _netGridRows = rows;
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (!e || !e.active) continue;
+            const cx = Math.max(0, Math.min(cols - 1, (e.x / _NET_CELL) | 0));
+            const cy = Math.max(0, Math.min(rows - 1, (e.y / _NET_CELL) | 0));
+            _netGrid[cy * cols + cx].push(i);
+        }
+    }
+    function netGridCandidatesAround(x, y, r) {
+        if (!_netGrid) return null;
+        const cols = _netGridCols, rows = _netGridRows;
+        const minX = Math.max(0, Math.min(cols - 1, ((x - r) / _NET_CELL) | 0));
+        const maxX = Math.max(0, Math.min(cols - 1, ((x + r) / _NET_CELL) | 0));
+        const minY = Math.max(0, Math.min(rows - 1, ((y - r) / _NET_CELL) | 0));
+        const maxY = Math.max(0, Math.min(rows - 1, ((y + r) / _NET_CELL) | 0));
+        if (!netGridCandidatesAround._tmp) netGridCandidatesAround._tmp = [];
+        const out = netGridCandidatesAround._tmp;
+        out.length = 0;
+        for (let cy = minY; cy <= maxY; cy++) {
+            for (let cx = minX; cx <= maxX; cx++) {
+                const cell = _netGrid[cy * cols + cx];
+                for (let k = 0; k < cell.length; k++) out.push(cell[k]);
+            }
+        }
+        return out;
+    }
 
     // Defense-only special drops / effects
     let defenseCoreTurretsActive = false;
@@ -6039,31 +6101,61 @@
             this.trail.push({x: this.x, y: this.y}); if (this.trail.length > 5) this.trail.shift();
             this.x += this.vx; this.y += this.vy;
             if (this.x < -50 || this.x > canvas.width+50 || this.y < -50 || this.y > canvas.height+50) { this.active = false; return; }
-            for (let e of enemies) {
-                if (!e.active) continue;
-                if (Math.hypot(e.x - this.x, e.y - this.y) < e.radius + 12) {
+            const px = this.x, py = this.y;
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                if (!e || !e.active) continue;
+                const rr = (e.radius || 0) + 12;
+                const dx = e.x - px, dy = e.y - py;
+                if ((dx * dx + dy * dy) < rr * rr) {
                     this.deployNet(e); this.active = false; return;
                 }
             }
-            if (isBossActive && bossEntity && bossEntity.active && Math.hypot(bossEntity.x - this.x, bossEntity.y - this.y) < bossEntity.radius + 12) {
+            if (isBossActive && bossEntity && bossEntity.active) {
+                const rr = (bossEntity.radius || 0) + 12;
+                const dx = bossEntity.x - px, dy = bossEntity.y - py;
+                if ((dx * dx + dy * dy) < rr * rr) {
                 this.deployNet(bossEntity); this.active = false; return;
+                }
             }
         }
         deployNet(firstTarget) {
             // Найти всех ближайших врагов для захвата
             let captured = [firstTarget];
             const capSet = new Set(captured);
-            let allTargets = [...enemies];
-            if (isBossActive && bossEntity && bossEntity.active) allTargets.push(bossEntity);
             
             // Ищем ближайших врагов цепочкой от первого
             for (let hop = 0; hop < this.maxTargets - 1; hop++) {
                 let last = captured[captured.length - 1];
                 let bestDist = Infinity; let next = null;
-                for (let t of allTargets) {
-                    if (!t.active || capSet.has(t)) continue;
-                    let d = Math.hypot(t.x - last.x, t.y - last.y);
-                    if (d < 350 && d < bestDist) { bestDist = d; next = t; }
+                const lx = last.x, ly = last.y;
+                const capR = 350;
+                const capR2 = capR * capR;
+                // candidates from grid
+                const cand = netGridCandidatesAround(lx, ly, capR);
+                if (cand && cand.length) {
+                    for (let ci = 0; ci < cand.length; ci++) {
+                        const t = enemies[cand[ci]];
+                        if (!t || !t.active || capSet.has(t)) continue;
+                        const dx = t.x - lx, dy = t.y - ly;
+                        const d2 = dx * dx + dy * dy;
+                        if (d2 < capR2 && d2 < bestDist) { bestDist = d2; next = t; }
+                    }
+                } else {
+                    // fallback
+                    for (let i = 0; i < enemies.length; i++) {
+                        const t = enemies[i];
+                        if (!t || !t.active || capSet.has(t)) continue;
+                        const dx = t.x - lx, dy = t.y - ly;
+                        const d2 = dx * dx + dy * dy;
+                        if (d2 < capR2 && d2 < bestDist) { bestDist = d2; next = t; }
+                    }
+                }
+                // boss
+                if (isBossActive && bossEntity && bossEntity.active && !capSet.has(bossEntity)) {
+                    const dx = bossEntity.x - lx, dy = bossEntity.y - ly;
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 < capR2 && d2 < bestDist) { bestDist = d2; next = bossEntity; }
                 }
                 if (!next) break;
                 captured.push(next);
@@ -6113,6 +6205,15 @@
             this.active = true;
             this.dps = baseDmg / duration * 60; // DPS based on total damage / duration
             this._acTick = 0;
+            // Cached render to reduce frame spikes (visual mostly static because targets are netLocked)
+            this._cacheCanvas = null;
+            this._cacheCtx = null;
+            this._cacheW = 0;
+            this._cacheH = 0;
+            this._cacheX = 0;
+            this._cacheY = 0;
+            this._cacheValid = false;
+            this._cacheFrame = 0;
         }
         update() {
             this.life--;
@@ -6129,31 +6230,52 @@
             this._acTick++;
             const acStride = enemies.length > 24 ? 4 : 3;
             if (this.captured.length < this.maxTargets && this._acTick % acStride === 0) {
+                // Build alive list + center in one pass (no allocations)
+                if (!this._aliveTmp) this._aliveTmp = [];
+                const aliveList = this._aliveTmp;
+                aliveList.length = 0;
                 let centerX = 0, centerY = 0;
-                let aliveList = this.captured.filter(e => e && e.active !== false && e.hp !== undefined);
-                for (let e of aliveList) { centerX += e.x; centerY += e.y; }
-                if (aliveList.length > 0) {
-                    centerX /= aliveList.length; centerY /= aliveList.length;
-                } else { centerX = this.originX; centerY = this.originY; }
-                
-                let allTargets = [...enemies];
-                if (isBossActive && bossEntity && bossEntity.active) allTargets.push(bossEntity);
-                let captureRadius = 350;
-                for (let t of allTargets) {
-                    if (!t.active || this.capturedSet.has(t) || t.hp === undefined) continue;
-                    let inRange = Math.hypot(t.x - centerX, t.y - centerY) < captureRadius;
+                for (let i = 0; i < this.captured.length; i++) {
+                    const e = this.captured[i];
+                    if (e && e.active !== false && e.hp !== undefined) { aliveList.push(e); centerX += e.x; centerY += e.y; }
+                }
+                if (aliveList.length > 0) { centerX /= aliveList.length; centerY /= aliveList.length; }
+                else { centerX = this.originX; centerY = this.originY; }
+
+                const captureRadius2 = 350 * 350;
+                const particleN = enemies.length > 22 ? 4 : 8;
+                const tryCapture = (t) => {
+                    if (!t || !t.active || this.capturedSet.has(t) || t.hp === undefined) return false;
+                    const dx0 = t.x - centerX, dy0 = t.y - centerY;
+                    let inRange = (dx0 * dx0 + dy0 * dy0) < captureRadius2;
                     if (!inRange) {
-                        for (let c of aliveList) {
-                            if (Math.hypot(t.x - c.x, t.y - c.y) < captureRadius) { inRange = true; break; }
+                        for (let j = 0; j < aliveList.length; j++) {
+                            const c = aliveList[j];
+                            const dx = t.x - c.x, dy = t.y - c.y;
+                            if ((dx * dx + dy * dy) < captureRadius2) { inRange = true; break; }
                         }
                     }
-                    if (inRange) {
-                        t.netLocked = true;
-                        this.captured.push(t);
-                        this.capturedSet.add(t);
-                        createParticles(t.x, t.y, enemies.length > 22 ? 4 : 8, GAME_THEME.magenta);
-                        if (this.captured.length >= this.maxTargets) break;
+                    if (!inRange) return false;
+                    t.netLocked = true;
+                    this.captured.push(t);
+                    this.capturedSet.add(t);
+                    createParticles(t.x, t.y, particleN, GAME_THEME.magenta);
+                    return true;
+                };
+
+                // Grid candidates around center (fast)
+                const cand = netGridCandidatesAround(centerX, centerY, 350);
+                if (cand && cand.length) {
+                    for (let ci = 0; ci < cand.length; ci++) {
+                        if (tryCapture(enemies[cand[ci]]) && this.captured.length >= this.maxTargets) break;
                     }
+                } else {
+                    for (let i = 0; i < enemies.length; i++) {
+                        if (tryCapture(enemies[i]) && this.captured.length >= this.maxTargets) break;
+                    }
+                }
+                if (this.captured.length < this.maxTargets && isBossActive && bossEntity && bossEntity.active) {
+                    tryCapture(bossEntity);
                 }
             }
 
@@ -6191,51 +6313,119 @@
             let alpha = Math.min(1, this.life / this.maxLife * 2.5);
             let fadeAlpha = Math.min(1, this.life / 30);
             ctx.save(); ctx.globalAlpha = alpha * fadeAlpha;
-            let alive = this.captured.filter(e => e && e.active !== false && e.hp !== undefined);
+            // No allocations: reuse alive tmp
+            if (!this._aliveTmpDraw) this._aliveTmpDraw = [];
+            const alive = this._aliveTmpDraw;
+            alive.length = 0;
+            for (let i = 0; i < this.captured.length; i++) {
+                const e = this.captured[i];
+                if (e && e.active !== false && e.hp !== undefined) alive.push(e);
+            }
             if (alive.length === 0) { ctx.restore(); return; }
             
             let cx = 0, cy = 0;
             for (let e of alive) { cx += e.x; cy += e.y; }
             cx /= alive.length; cy /= alive.length;
             
-            // NEON SPIDER WEB — LOD только при экстремальной толпе (иначе полный неон)
+            // NEON SPIDER WEB — cache rendering to reduce spikes.
             const globalStress = countActiveEnemiesQuick() > 42;
             const netStress = globalStress && alive.length > 12;
-            ctx.shadowBlur = netStress ? 5 : 12; ctx.shadowColor = GAME_THEME.magenta;
-            let threadTargets = alive;
-            if (alive.length > 8 && netStress) {
-                threadTargets = alive.slice().sort((a, b) =>
-                    Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)).slice(0, 8);
+            const needRedraw = !this._cacheValid || (renderFrameId - this._cacheFrame) >= (netStress ? 2 : 1);
+
+            // Compute bounds for cache
+            let minX = cx, maxX = cx, minY = cy, maxY = cy;
+            for (let i = 0; i < alive.length; i++) {
+                const e = alive[i];
+                if (e.x < minX) minX = e.x;
+                if (e.x > maxX) maxX = e.x;
+                if (e.y < minY) minY = e.y;
+                if (e.y > maxY) maxY = e.y;
             }
-            const segCap = netStress ? 4 : 6;
-            // Web threads from center to each captured enemy (детерминированный «шум», кап сегментов)
-            for (let e of threadTargets) {
-                let d = Math.hypot(e.x - cx, e.y - cy);
-                const ej = Math.sin(e.x * 0.02 + e.y * 0.017 + this.life * 0.11);
-                const ej2 = Math.cos(e.x * 0.015 - this.life * 0.09);
-                ctx.strokeStyle = `rgba(255, 0, 255, ${0.25 + alpha * 0.15})`;
-                ctx.lineWidth = 1;
-                ctx.beginPath(); ctx.moveTo(cx, cy);
-                let midX = (cx + e.x) / 2 + ej * 4;
-                let midY = (cy + e.y) / 2 + ej2 * 4;
-                ctx.quadraticCurveTo(midX, midY, e.x, e.y);
-                ctx.stroke();
-                
-                let segments = Math.min(segCap, Math.max(1, Math.floor(d / 40)));
-                for (let s = 1; s <= segments; s++) {
-                    let t = s / (segments + 1);
-                    let px = cx + (e.x - cx) * t;
-                    let py = cy + (e.y - cy) * t;
-                    let perpX = -(e.y - cy) * 0.15;
-                    let perpY = (e.x - cx) * 0.15;
-                    let threadLen = 15 + Math.sin(this.life * 0.12 + s * 0.7 + e.x * 0.03) * 5;
-                    ctx.strokeStyle = `rgba(200, 0, 255, ${0.12 + alpha * 0.08})`;
-                    ctx.lineWidth = 0.5;
-                    ctx.beginPath();
-                    ctx.moveTo(px - perpX * threadLen / Math.max(1, d), py - perpY * threadLen / Math.max(1, d));
-                    ctx.lineTo(px + perpX * threadLen / Math.max(1, d), py + perpY * threadLen / Math.max(1, d));
-                    ctx.stroke();
+            const pad = netStress ? 90 : 110;
+            minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+            const bw = Math.max(1, Math.min(canvas.width, Math.ceil(maxX - minX)));
+            const bh = Math.max(1, Math.min(canvas.height, Math.ceil(maxY - minY)));
+
+            if (!this._cacheCanvas) {
+                this._cacheCanvas = document.createElement('canvas');
+                this._cacheCtx = this._cacheCanvas.getContext('2d');
+            }
+            if (this._cacheW !== bw || this._cacheH !== bh) {
+                this._cacheCanvas.width = bw;
+                this._cacheCanvas.height = bh;
+                this._cacheW = bw; this._cacheH = bh;
+                this._cacheValid = false;
+            }
+            this._cacheX = minX; this._cacheY = minY;
+
+            if (needRedraw && this._cacheCtx) {
+                const cctx = this._cacheCtx;
+                cctx.clearRect(0, 0, bw, bh);
+                cctx.save();
+                cctx.translate(-minX, -minY);
+                cctx.globalAlpha = 1;
+                cctx.shadowBlur = netStress ? 5 : 12;
+                cctx.shadowColor = GAME_THEME.magenta;
+
+                let threadTargets = alive;
+                if (alive.length > 8 && netStress) {
+                    // Select 8 nearest without full sort
+                    if (!this._nearest8) this._nearest8 = [];
+                    const nearest = this._nearest8;
+                    nearest.length = 0;
+                    for (let i = 0; i < alive.length; i++) {
+                        const e = alive[i];
+                        const dx = e.x - cx, dy = e.y - cy;
+                        const d2 = dx * dx + dy * dy;
+                        let k = nearest.length;
+                        if (k < 8) {
+                            nearest.push({ e, d2 });
+                            while (k > 0 && nearest[k - 1].d2 > d2) { const tmp = nearest[k - 1]; nearest[k - 1] = nearest[k]; nearest[k] = tmp; k--; }
+                        } else if (d2 < nearest[7].d2) {
+                            nearest[7] = { e, d2 };
+                            for (let p = 7; p > 0 && nearest[p - 1].d2 > nearest[p].d2; p--) { const tmp = nearest[p - 1]; nearest[p - 1] = nearest[p]; nearest[p] = tmp; }
+                        }
+                    }
+                    threadTargets = nearest.map(x => x.e);
                 }
+                const segCap = netStress ? 4 : 6;
+                for (let i = 0; i < threadTargets.length; i++) {
+                    const e = threadTargets[i];
+                    const dx = e.x - cx, dy = e.y - cy;
+                    let d = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const ej = Math.sin(e.x * 0.02 + e.y * 0.017 + this.life * 0.11);
+                    const ej2 = Math.cos(e.x * 0.015 - this.life * 0.09);
+                    cctx.strokeStyle = `rgba(255, 0, 255, ${0.25 + alpha * 0.15})`;
+                    cctx.lineWidth = 1;
+                    cctx.beginPath(); cctx.moveTo(cx, cy);
+                    let midX = (cx + e.x) / 2 + ej * 4;
+                    let midY = (cy + e.y) / 2 + ej2 * 4;
+                    cctx.quadraticCurveTo(midX, midY, e.x, e.y);
+                    cctx.stroke();
+
+                    let segments = Math.min(segCap, Math.max(1, Math.floor(d / 40)));
+                    for (let s = 1; s <= segments; s++) {
+                        let t = s / (segments + 1);
+                        let px = cx + (e.x - cx) * t;
+                        let py = cy + (e.y - cy) * t;
+                        let perpX = -(e.y - cy) * 0.15;
+                        let perpY = (e.x - cx) * 0.15;
+                        let threadLen = 15 + Math.sin(this.life * 0.12 + s * 0.7 + e.x * 0.03) * 5;
+                        cctx.strokeStyle = `rgba(200, 0, 255, ${0.12 + alpha * 0.08})`;
+                        cctx.lineWidth = 0.5;
+                        cctx.beginPath();
+                        cctx.moveTo(px - perpX * threadLen / d, py - perpY * threadLen / d);
+                        cctx.lineTo(px + perpX * threadLen / d, py + perpY * threadLen / d);
+                        cctx.stroke();
+                    }
+                }
+                cctx.restore();
+                this._cacheValid = true;
+                this._cacheFrame = renderFrameId;
+            }
+
+            if (this._cacheCanvas && this._cacheValid) {
+                ctx.drawImage(this._cacheCanvas, this._cacheX, this._cacheY);
             }
             
             // Concentric web rings around center
@@ -6695,13 +6885,31 @@
             this.char = c.char;
             this.color = c.color;
             this.spin = Math.random() * Math.PI * 2;
+            this.t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            this._idlePhase = Math.random() * Math.PI * 2;
         }
         update() {
             this.life--; if (this.life <= 0) this.active = false;
             this.spin += 0.055;
+            const w = canvas.width || 1;
+            const h = canvas.height || 1;
             const dist = Math.hypot(player.x - this.x, player.y - this.y);
             const pullRange = player.magnetTimer > 0 ? 900 : 140;
-            if (dist < pullRange) { this.x += (player.x - this.x) * 0.12; this.y += (player.y - this.y) * 0.12; }
+            if (dist < pullRange) {
+                const k = player.magnetTimer > 0 ? 0.16 : 0.12;
+                this.x += (player.x - this.x) * k;
+                this.y += (player.y - this.y) * k;
+            } else {
+                const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                const t = (now - this.t0) * 0.001;
+                this.x += Math.cos(t * 0.9 + this._idlePhase) * 0.08;
+                this.y += Math.sin(t * 1.05 + this._idlePhase) * 0.08;
+            }
+            const m = 18;
+            if (this.x < m) this.x = m;
+            if (this.y < m) this.y = m;
+            if (this.x > w - m) this.x = w - m;
+            if (this.y > h - m) this.y = h - m;
 
             if (dist < 26) {
                 this.active = false;
@@ -6716,12 +6924,14 @@
         draw() { 
             const a = Math.max(0, Math.min(1, this.life / 220));
             ctx.save();
-            ctx.translate(this.x, this.y);
+            // subtle float + spin for "premium" drop feel
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const bob = Math.sin((now - this.t0) * 0.0014 + this._idlePhase) * 1.0;
+            ctx.translate(this.x, this.y + bob);
             ctx.globalAlpha = a;
             ctx.textAlign = 'center';
-            ctx.font = '16px Share Tech Mono';
 
-            // Map old powerups into the new "chip" style
+            // Map powerups into unified icon set (same as HUD/shop)
             let hue = 45;
             if (this.type === 'heal') hue = 10;
             else if (this.type === 'shield') hue = 190;
@@ -6731,60 +6941,49 @@
 
             ctx.shadowBlur = 18;
             ctx.shadowColor = `hsla(${hue},95%,70%,0.55)`;
-            ctx.fillStyle = 'rgba(10,14,26,0.98)';
+            // 3D chip frame (gradient + bevel)
+            const g = ctx.createLinearGradient(-14, -14, 14, 14);
+            g.addColorStop(0, 'rgba(22, 30, 52, 0.98)');
+            g.addColorStop(0.55, 'rgba(10, 14, 26, 0.98)');
+            g.addColorStop(1, 'rgba(4, 6, 14, 0.98)');
+            ctx.fillStyle = g;
             ctx.strokeStyle = `hsla(${hue},95%,70%,0.98)`;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.roundRect(-14, -14, 28, 28, 6);
             ctx.fill();
             ctx.stroke();
+            // inner bevel
+            ctx.globalAlpha *= 0.9;
+            ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(-12.5, -12.5, 25, 25, 5);
+            ctx.stroke();
+            ctx.globalAlpha = a;
+            // spec highlight
+            ctx.save();
+            ctx.globalAlpha = a * 0.55;
+            const hg = ctx.createRadialGradient(-6, -7, 1, -6, -7, 18);
+            hg.addColorStop(0, 'rgba(255,255,255,0.22)');
+            hg.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = hg;
+            ctx.beginPath();
+            ctx.roundRect(-14, -14, 28, 28, 6);
+            ctx.fill();
+            ctx.restore();
 
-            ctx.rotate(this.spin * 0.25);
-            // icons (simple but readable)
-            if (this.type === 'heal') {
-                ctx.fillStyle = `hsla(${hue},95%,70%,0.95)`;
-                ctx.fillRect(-2.5, -8, 5, 16);
-                ctx.fillRect(-8, -2.5, 16, 5);
-            } else if (this.type === 'shield') {
-                ctx.strokeStyle = `hsla(${hue},95%,70%,0.95)`;
-                ctx.lineWidth = 2.6;
-                ctx.beginPath();
-                ctx.moveTo(0, -9);
-                ctx.quadraticCurveTo(9, -6, 8, 3);
-                ctx.quadraticCurveTo(6, 10, 0, 12);
-                ctx.quadraticCurveTo(-6, 10, -8, 3);
-                ctx.quadraticCurveTo(-9, -6, 0, -9);
-                ctx.stroke();
-            } else if (this.type === 'magnet') {
-                ctx.strokeStyle = `hsla(${hue},95%,70%,0.95)`;
-                ctx.lineWidth = 2.8;
-                ctx.beginPath();
-                ctx.arc(0, 2, 7, Math.PI, 0);
-                ctx.stroke();
-                ctx.lineWidth = 3.2;
-                ctx.beginPath();
-                ctx.moveTo(-7, 2); ctx.lineTo(-7, 10);
-                ctx.moveTo(7, 2); ctx.lineTo(7, 10);
-                ctx.stroke();
-            } else if (this.type === 'boost') {
-                ctx.fillStyle = `hsla(${hue},95%,70%,0.95)`;
-                ctx.beginPath();
-                ctx.moveTo(-8, -4); ctx.lineTo(-1, 0); ctx.lineTo(-8, 4); ctx.closePath(); ctx.fill();
-                ctx.beginPath();
-                ctx.moveTo(0, -4); ctx.lineTo(7, 0); ctx.lineTo(0, 4); ctx.closePath(); ctx.fill();
-            } else {
-                // weapon
-                ctx.strokeStyle = `hsla(${hue},95%,70%,0.95)`;
-                ctx.lineWidth = 2.4;
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const ang = i * Math.PI / 3;
-                    const rr = (i % 2 === 0) ? 10 : 4.5;
-                    ctx.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr);
-                }
-                ctx.closePath();
-                ctx.stroke();
-            }
+            const css = `hsla(${hue},85%,62%,0.98)`;
+            // Draw icon directly (no SVG decode); matches HUD/shop shapes.
+            ctx.save();
+            // Keep icon upright for perfect centering + readability
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = `hsla(${hue},95%,70%,0.60)`;
+            // subtle inner depth
+            ctx.globalAlpha *= 0.95;
+            ctx.translate(0, 0.2);
+            drawPowerupIconCanvas(ctx, this.type, css);
+            ctx.restore();
 
             ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
@@ -6801,14 +7000,31 @@
             this.active = true;
             this.life = 520;
             this.spin = Math.random() * Math.PI * 2;
+            this.t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            this._idlePhase = Math.random() * Math.PI * 2;
         }
         update() {
             this.life--; if (this.life <= 0) this.active = false;
             this.spin += 0.06;
-
+            const w = canvas.width || 1;
+            const h = canvas.height || 1;
             const dist = Math.hypot(player.x - this.x, player.y - this.y);
             const pullRange = player.magnetTimer > 0 ? 900 : 130;
-            if (dist < pullRange) { this.x += (player.x - this.x) * 0.12; this.y += (player.y - this.y) * 0.12; }
+            if (dist < pullRange) {
+                const k = player.magnetTimer > 0 ? 0.16 : 0.12;
+                this.x += (player.x - this.x) * k;
+                this.y += (player.y - this.y) * k;
+            } else {
+                const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                const t = (now - this.t0) * 0.001;
+                this.x += Math.cos(t * 0.9 + this._idlePhase) * 0.08;
+                this.y += Math.sin(t * 1.05 + this._idlePhase) * 0.08;
+            }
+            const m = 18;
+            if (this.x < m) this.x = m;
+            if (this.y < m) this.y = m;
+            if (this.x > w - m) this.x = w - m;
+            if (this.y > h - m) this.y = h - m;
 
             if (dist < 26) {
                 this.active = false;
@@ -6830,45 +7046,54 @@
             const a = Math.max(0, Math.min(1, this.life / 220));
             const hue = this.hue;
             ctx.save();
-            ctx.translate(this.x, this.y);
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const bob = Math.sin((now - this.t0) * 0.0014 + this._idlePhase) * 1.0;
+            ctx.translate(this.x, this.y + bob);
             ctx.globalAlpha = a;
             ctx.shadowBlur = 18;
             ctx.shadowColor = `hsla(${hue},95%,70%,0.55)`;
 
             // frame
-            ctx.fillStyle = 'rgba(10,14,26,0.98)';
+            const g = ctx.createLinearGradient(-14, -14, 14, 14);
+            g.addColorStop(0, 'rgba(22, 30, 52, 0.98)');
+            g.addColorStop(0.55, 'rgba(10, 14, 26, 0.98)');
+            g.addColorStop(1, 'rgba(4, 6, 14, 0.98)');
+            ctx.fillStyle = g;
             ctx.strokeStyle = `hsla(${hue},95%,70%,0.98)`;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.roundRect(-14, -14, 28, 28, 6);
             ctx.fill();
             ctx.stroke();
+            ctx.globalAlpha *= 0.9;
+            ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(-12.5, -12.5, 25, 25, 5);
+            ctx.stroke();
+            ctx.globalAlpha = a;
+            ctx.save();
+            ctx.globalAlpha = a * 0.55;
+            const hg = ctx.createRadialGradient(-6, -7, 1, -6, -7, 18);
+            hg.addColorStop(0, 'rgba(255,255,255,0.22)');
+            hg.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = hg;
+            ctx.beginPath();
+            ctx.roundRect(-14, -14, 28, 28, 6);
+            ctx.fill();
+            ctx.restore();
 
-            // icon
-            ctx.rotate(this.spin * 0.25);
-            if (this.type === 'core_key') {
-                ctx.strokeStyle = `hsla(${(hue + 10) % 360},95%,72%,0.95)`;
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(0, 0, 6.5, -Math.PI / 2, Math.PI * 1.2);
-                ctx.stroke();
-                ctx.fillStyle = `hsla(${(hue + 40) % 360},95%,72%,0.95)`;
-                ctx.fillRect(2, -1.2, 8, 2.4);
-                ctx.fillRect(7, -5, 2.2, 3);
-            } else {
-                // EMP wave glyph
-                for (let i = 0; i < 3; i++) {
-                    ctx.strokeStyle = `hsla(${(hue + 10) % 360},95%,70%,${0.24 + i * 0.18})`;
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.arc(0, 0, 5 + i * 4, -1.8, 1.8);
-                    ctx.stroke();
-                }
-                ctx.fillStyle = `hsla(${(hue + 50) % 360},95%,72%,0.9)`;
-                ctx.beginPath(); ctx.arc(-5, 0, 2, 0, Math.PI * 2); ctx.fill();
-                ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI * 2); ctx.fill();
-                ctx.beginPath(); ctx.arc(5, 0, 2, 0, Math.PI * 2); ctx.fill();
-            }
+            // icon (unified SVG set; matches HUD/shop)
+            const css = `hsla(${hue},85%,62%,0.98)`;
+            const mapped = this.type === 'core_key' ? 'core_weapon' : 'core_emp';
+            ctx.save();
+            // Keep icon upright for perfect centering + readability
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = `hsla(${hue},95%,70%,0.60)`;
+            ctx.globalAlpha *= 0.95;
+            ctx.translate(0, 0.2);
+            drawPowerupIconCanvas(ctx, mapped, css);
+            ctx.restore();
 
             ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
@@ -7626,55 +7851,437 @@
     }
 
     function powerupIconSvg(type, colorCss) {
-        const stroke = colorCss || 'currentColor';
-        const fill = 'rgba(0,0,0,0.0)';
-        // Simple inline SVGs that match names (not emoji) and can be reused in HUD/shop.
+        const accent = colorCss || 'currentColor';
+        // Brand-new detailed icons (no reuse of old shapes).
+        // All icons are centered in 24x24 and designed to sit perfectly within the 18x18 slot.
+        const defs = (id) => `
+          <defs>
+            <linearGradient id="${id}-metal" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="rgba(255,255,255,0.22)"/>
+              <stop offset="0.35" stop-color="rgba(255,255,255,0.05)"/>
+              <stop offset="1" stop-color="rgba(0,0,0,0.25)"/>
+            </linearGradient>
+            <radialGradient id="${id}-halo" cx="50%" cy="45%" r="65%">
+              <stop offset="0" stop-color="${accent}" stop-opacity="0.35"/>
+              <stop offset="0.55" stop-color="${accent}" stop-opacity="0.14"/>
+              <stop offset="1" stop-color="${accent}" stop-opacity="0"/>
+            </radialGradient>
+            <filter id="${id}-glow" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="1.6" result="b"/>
+              <feMerge>
+                <feMergeNode in="b"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>`;
+
         if (type === 'heal') {
             return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M12 21s-7-4.2-9.6-8.6C.6 9 .9 6 3.3 4.4 5.2 3.1 7.6 3.6 9.1 5c1.1 1 1.9 2.2 2.9 3.4 1-1.2 1.8-2.4 2.9-3.4 1.5-1.4 3.9-1.9 5.8-.6 2.4 1.6 2.7 4.6.9 8-2.6 4.4-9.6 8.6-9.6 8.6z"
-                    fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
-              <path d="M12 8v6M9 11h6" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
+              ${defs('heal')}
+              <circle cx="12" cy="12" r="10" fill="url(#heal-halo)"/>
+              <g filter="url(#heal-glow)">
+                <rect x="10.2" y="5.2" width="3.6" height="13.6" rx="1.2" fill="${accent}"/>
+                <rect x="5.2" y="10.2" width="13.6" height="3.6" rx="1.2" fill="${accent}"/>
+              </g>
+              <g fill="${accent}" opacity="0.55">
+                <circle cx="6.2" cy="8.1" r="0.8"/><circle cx="18.2" cy="7.3" r="0.7"/>
+                <circle cx="19" cy="15.6" r="0.9"/><circle cx="7.1" cy="17.2" r="0.7"/>
+                <circle cx="12" cy="3.9" r="0.6"/><circle cx="3.9" cy="12" r="0.6"/>
+              </g>
             </svg>`;
         }
+
         if (type === 'shield') {
             return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M12 2l8 4v7c0 5-3.5 8.6-8 9-4.5-.4-8-4-8-9V6l8-4z"
-                    fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
-              <path d="M12 6v12" stroke="${stroke}" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+              ${defs('sh')}
+              <circle cx="12" cy="12" r="10" fill="url(#sh-halo)"/>
+              <!-- classic heater shield with metallic surface -->
+              <path d="M12 3.4l7.9 3.9v6.4c0 4.9-3.1 8.1-7.9 9.1-4.8-1-7.9-4.2-7.9-9.1V7.3L12 3.4z"
+                    fill="url(#sh-metal)" stroke="${accent}" stroke-width="1.8" stroke-linejoin="round" filter="url(#sh-glow)"/>
+              <!-- rim glow -->
+              <path d="M12 4.9l6.5 3.2v5.6c0 4-2.5 6.7-6.5 7.6-4-0.9-6.5-3.6-6.5-7.6V8.1L12 4.9z"
+                    fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.2" stroke-linejoin="round"/>
+              <!-- center ridge -->
+              <path d="M12 6.2v14" stroke="rgba(255,255,255,0.26)" stroke-width="1.2" stroke-linecap="round"/>
+              <!-- tech accents -->
+              <path d="M8.2 9.4h2.1M13.7 9.4h2.1" stroke="${accent}" stroke-opacity="0.35" stroke-width="1.1" stroke-linecap="round"/>
+              <path d="M7.5 12.1h2.4M14.1 12.1h2.4" stroke="${accent}" stroke-opacity="0.22" stroke-width="1.1" stroke-linecap="round"/>
+              <path d="M9 15.2h6" stroke="${accent}" stroke-opacity="0.18" stroke-width="1.1" stroke-linecap="round"/>
             </svg>`;
         }
-        if (type === 'weapon') {
-            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M12 2l2.2 6.1 6.6.1-5.3 3.9 2 6.2-5.5-3.6-5.5 3.6 2-6.2L3.2 8.2l6.6-.1L12 2z"
-                    fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
-            </svg>`;
-        }
+
         if (type === 'boost') {
             return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M4 13l8-10 8 10-8 8-8-8z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
-              <path d="M12 8v7" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
+              ${defs('bo')}
+              <circle cx="12" cy="12" r="10" fill="url(#bo-halo)"/>
+              <g filter="url(#bo-glow)" fill="none" stroke="${accent}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6.2 8.2h6.6l-2.3-2.2"/>
+                <path d="M6.2 12h8.6l-2.7-2.6"/>
+                <path d="M6.2 15.8h6.6l-2.3 2.2"/>
+              </g>
+              <g stroke="${accent}" stroke-opacity="0.28" stroke-width="1" stroke-linecap="round">
+                <path d="M15.5 9.2h2.8"/><path d="M16.5 12h3.6"/><path d="M15.5 14.8h2.8"/>
+              </g>
             </svg>`;
         }
+
+        if (type === 'weapon') {
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              ${defs('wp')}
+              <circle cx="12" cy="12" r="10" fill="url(#wp-halo)"/>
+              <g filter="url(#wp-glow)">
+                <path d="M8 14.8h8.2c1.1 0 2-.9 2-2v-2.6c0-1.1-.9-2-2-2H8.8c-1 0-1.8.8-1.8 1.8v5.4c0 .9.7 1.6 1.6 1.6z"
+                      fill="url(#wp-metal)" stroke="${accent}" stroke-width="1.4" stroke-linejoin="round"/>
+                <path d="M10 8.4h6.8" stroke="rgba(255,255,255,0.18)" stroke-width="1" stroke-linecap="round"/>
+                <g fill="${accent}" opacity="0.9">
+                  <rect x="10.2" y="11.2" width="2.2" height="5.2" rx="0.8"/>
+                  <rect x="13" y="10.6" width="2.2" height="5.8" rx="0.8"/>
+                  <rect x="15.8" y="11.6" width="2.2" height="4.8" rx="0.8"/>
+                </g>
+                <circle cx="9.4" cy="12" r="0.9" fill="${accent}" opacity="0.65"/>
+              </g>
+            </svg>`;
+        }
+
         if (type === 'magnet') {
             return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M7 4v7a5 5 0 0 0 10 0V4" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
-              <path d="M7 4h4M13 4h4" stroke="${stroke}" stroke-width="2" stroke-linecap="round"/>
+              ${defs('mg')}
+              <circle cx="12" cy="12" r="10" fill="url(#mg-halo)"/>
+              <g filter="url(#mg-glow)" fill="none" stroke="${accent}" stroke-width="1.8" stroke-linecap="round">
+                <path d="M7.2 6.2v6.1c0 2.7 2.1 4.8 4.8 4.8s4.8-2.1 4.8-4.8V6.2"/>
+                <path d="M7.2 6.2h3.2M13.6 6.2h3.2"/>
+                <path d="M8.2 11.6c1.7-1.3 5.9-1.3 7.6 0" stroke-opacity="0.45"/>
+                <path d="M9 14.2c1.2-0.9 4.8-0.9 6 0" stroke-opacity="0.25"/>
+              </g>
             </svg>`;
         }
-        if (type === 'core_weapon') {
-            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M12 3l7 4v6c0 4.2-2.8 7.4-7 8-4.2-.6-7-3.8-7-8V7l7-4z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
-              <path d="M8 13l4-6 4 6" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>`;
-        }
+
         if (type === 'core_emp') {
             return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="M13 2L4 14h7l-1 8 10-14h-7l0-6z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/>
+              ${defs('emp')}
+              <circle cx="12" cy="12" r="10" fill="url(#emp-halo)"/>
+              <g filter="url(#emp-glow)" fill="none" stroke="${accent}" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 6.2c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6 2.7-6 6-6z" stroke-width="1.6" stroke-opacity="0.85"/>
+                <path d="M6.2 12.4l2.2-1.1 1.2 2.3 2.2-3.1 1.3 2.1 1.7-2.6 1 1.8 2.2-1.3" stroke-width="1.4"/>
+                <path d="M7.2 9.2c1.4-1.3 3-2 4.8-2 1.8 0 3.4.7 4.8 2" stroke-width="1" stroke-opacity="0.35"/>
+              </g>
             </svg>`;
         }
+
+        if (type === 'core_weapon') {
+            // rocket launch / core weapon activation
+            return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              ${defs('cw')}
+              <circle cx="12" cy="12" r="10" fill="url(#cw-halo)"/>
+              <g filter="url(#cw-glow)">
+                <!-- rocket body -->
+                <path d="M12 4.6c2.7 2.1 4.1 4.8 4.1 7.9 0 3.8-2.2 7-4.1 8.9-1.9-1.9-4.1-5.1-4.1-8.9 0-3.1 1.4-5.8 4.1-7.9z"
+                      fill="url(#cw-metal)" stroke="${accent}" stroke-width="1.8" stroke-linejoin="round"/>
+                <!-- window -->
+                <circle cx="12" cy="11" r="1.35" fill="rgba(255,255,255,0.18)" stroke="${accent}" stroke-opacity="0.38" stroke-width="0.9"/>
+                <!-- fins -->
+                <path d="M9.4 14.2l-2.6 1.6 1.4-3.1" fill="${accent}" opacity="0.22"/>
+                <path d="M14.6 14.2l2.6 1.6-1.4-3.1" fill="${accent}" opacity="0.22"/>
+                <!-- core glow / exhaust -->
+                <radialGradient id="cw-core" cx="50%" cy="85%" r="55%">
+                  <stop offset="0" stop-color="${accent}" stop-opacity="0.55"/>
+                  <stop offset="0.55" stop-color="${accent}" stop-opacity="0.18"/>
+                  <stop offset="1" stop-color="${accent}" stop-opacity="0"/>
+                </radialGradient>
+                <ellipse cx="12" cy="19.1" rx="4.6" ry="3.2" fill="url(#cw-core)"/>
+                <path d="M9.1 18.3c1 .8 1.9 1.2 2.9 1.2s1.9-.4 2.9-1.2c-.8 1.6-1.9 2.7-2.9 3.4-1-0.7-2.1-1.8-2.9-3.4z"
+                      fill="${accent}" opacity="0.22"/>
+              </g>
+            </svg>`;
+        }
+
         return `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <circle cx="12" cy="12" r="8" fill="${fill}" stroke="${stroke}" stroke-width="2"/>
+          ${defs('df')}
+          <circle cx="12" cy="12" r="10" fill="url(#df-halo)"/>
+          <circle cx="12" cy="12" r="6" fill="url(#df-metal)" stroke="${accent}" stroke-width="1.4" filter="url(#df-glow)"/>
         </svg>`;
+    }
+
+    // (SVG → Image cache removed: drops render icons directly on Canvas2D)
+
+    function drawPowerupIconCanvas(ctx, type, strokeCss) {
+        // Brand-new detailed icons (no reuse of old shapes), centered around (0,0) in ~20x20.
+        const stroke = strokeCss || 'rgba(255,255,255,0.9)';
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const pulse = 0.6 + 0.4 * Math.sin(now * 0.006);
+        ctx.save();
+        ctx.strokeStyle = stroke;
+        ctx.fillStyle = 'rgba(0,0,0,0)';
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        if (type === 'heal') {
+            // glowing medical cross + halo + particles
+            ctx.save();
+            ctx.globalAlpha *= (0.75 + 0.25 * pulse);
+            const rg = ctx.createRadialGradient(0, 0, 2, 0, 0, 12);
+            rg.addColorStop(0, stroke);
+            rg.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = rg;
+            ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+
+            ctx.save();
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = stroke;
+            ctx.fillStyle = stroke;
+            ctx.globalAlpha *= 0.95;
+            ctx.fillRect(-2.2, -9.2, 4.4, 18.4);
+            ctx.fillRect(-9.2, -2.2, 18.4, 4.4);
+            ctx.restore();
+
+            // particles (static pattern; no randomness at draw time)
+            ctx.save();
+            ctx.globalAlpha *= 0.5;
+            ctx.fillStyle = stroke;
+            const pts = [[-7,-6],[8,-5],[9,7],[-6,9],[0,-11],[-11,0]];
+            for (let i = 0; i < pts.length; i++) {
+                const p = pts[i];
+                ctx.beginPath(); ctx.arc(p[0], p[1], i % 2 ? 0.9 : 0.7, 0, Math.PI*2); ctx.fill();
+            }
+            ctx.restore();
+        } else if (type === 'shield') {
+            // knight shield: sharper silhouette + metallic volume + edge glow + tech accents (readable at small size)
+            const metal = ctx.createLinearGradient(-10, -12, 10, 12);
+            metal.addColorStop(0, 'rgba(255,255,255,0.20)');
+            metal.addColorStop(0.45, 'rgba(255,255,255,0.06)');
+            metal.addColorStop(1, 'rgba(0,0,0,0.26)');
+
+            // outer body
+            ctx.save();
+            ctx.globalAlpha *= 0.98;
+            ctx.fillStyle = metal;
+            ctx.shadowBlur = 9;
+            ctx.shadowColor = stroke;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            // top flat + shoulders + pointed bottom (more "knightly" than oval)
+            ctx.moveTo(-6.8, -10.2);
+            ctx.lineTo(6.8, -10.2);
+            ctx.lineTo(9.4, -7.0);
+            ctx.lineTo(8.6, 3.8);
+            ctx.quadraticCurveTo(6.8, 11.8, 0, 14.8);
+            ctx.quadraticCurveTo(-6.8, 11.8, -8.6, 3.8);
+            ctx.lineTo(-9.4, -7.0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+
+            // inner bevel rim
+            ctx.save();
+            ctx.globalAlpha *= 0.22;
+            ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.moveTo(-5.6, -9.1);
+            ctx.lineTo(5.6, -9.1);
+            ctx.lineTo(7.7, -6.4);
+            ctx.lineTo(7.1, 3.0);
+            ctx.quadraticCurveTo(5.8, 10.6, 0, 13.0);
+            ctx.quadraticCurveTo(-5.8, 10.6, -7.1, 3.0);
+            ctx.lineTo(-7.7, -6.4);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+
+            // center ridge + subtle crossbars (tech accents)
+            ctx.save();
+            ctx.globalAlpha *= 0.30;
+            ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+            ctx.lineWidth = 1.15;
+            ctx.beginPath();
+            ctx.moveTo(0, -7.8); ctx.lineTo(0, 11.8);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha *= 0.32;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1.15;
+            ctx.beginPath();
+            ctx.moveTo(-6.6, -4.2); ctx.lineTo(-4.2, -4.2);
+            ctx.moveTo(4.2, -4.2); ctx.lineTo(6.6, -4.2);
+            ctx.moveTo(-7.0, -0.6); ctx.lineTo(-4.0, -0.6);
+            ctx.moveTo(4.0, -0.6); ctx.lineTo(7.0, -0.6);
+            ctx.moveTo(-5.0, 3.2); ctx.lineTo(5.0, 3.2);
+            ctx.stroke();
+            ctx.restore();
+        } else if (type === 'boost') {
+            // forward arrows + motion lines
+            ctx.save();
+            ctx.shadowBlur = 7;
+            ctx.shadowColor = stroke;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.moveTo(-8, -6); ctx.lineTo(2, -6); ctx.lineTo(-1, -9);
+            ctx.moveTo(-8, 0); ctx.lineTo(6, 0); ctx.lineTo(2, -4);
+            ctx.moveTo(-8, 6); ctx.lineTo(2, 6); ctx.lineTo(-1, 9);
+            ctx.stroke();
+            ctx.restore();
+            ctx.save();
+            ctx.globalAlpha *= 0.28;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(6, -6); ctx.lineTo(11, -6);
+            ctx.moveTo(7, 0); ctx.lineTo(13, 0);
+            ctx.moveTo(6, 6); ctx.lineTo(11, 6);
+            ctx.stroke();
+            ctx.restore();
+        } else if (type === 'weapon') {
+            // compact turret module with barrels
+            const metal = ctx.createLinearGradient(-10, -8, 10, 10);
+            metal.addColorStop(0, 'rgba(255,255,255,0.16)');
+            metal.addColorStop(0.55, 'rgba(255,255,255,0.05)');
+            metal.addColorStop(1, 'rgba(0,0,0,0.22)');
+            ctx.save();
+            ctx.fillStyle = metal;
+            ctx.beginPath();
+            ctx.roundRect(-9, -4, 16.5, 10, 2.6);
+            ctx.fill();
+            ctx.shadowBlur = 7;
+            ctx.shadowColor = stroke;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+            ctx.restore();
+            // barrels
+            ctx.save();
+            ctx.fillStyle = stroke;
+            ctx.shadowBlur = 6;
+            ctx.shadowColor = stroke;
+            ctx.fillRect(-6.5, -1.2, 3.2, 8.2);
+            ctx.fillRect(-2.2, -2.2, 3.2, 9.2);
+            ctx.fillRect(2.1, -0.6, 3.2, 7.6);
+            ctx.restore();
+            // small tech dot
+            ctx.save();
+            ctx.globalAlpha *= 0.6;
+            ctx.fillStyle = stroke;
+            ctx.beginPath(); ctx.arc(-8.2, 1, 1, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+        } else if (type === 'magnet') {
+            // U magnet + field lines
+            ctx.save();
+            ctx.shadowBlur = 7;
+            ctx.shadowColor = stroke;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2.4;
+            ctx.beginPath();
+            ctx.moveTo(-7, -9);
+            ctx.lineTo(-7, 3);
+            ctx.arc(0, 3, 7, Math.PI, 0);
+            ctx.lineTo(7, -9);
+            ctx.stroke();
+            ctx.restore();
+            ctx.save();
+            ctx.globalAlpha *= 0.45;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(-5, 1); ctx.quadraticCurveTo(0, -2, 5, 1);
+            ctx.moveTo(-4, 5); ctx.quadraticCurveTo(0, 2.2, 4, 5);
+            ctx.stroke();
+            ctx.restore();
+        } else if (type === 'core_emp') {
+            // circular wave + electric discharges
+            ctx.save();
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = stroke;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(0, 0, 9.5, 0, Math.PI*2); ctx.stroke();
+            ctx.restore();
+            ctx.save();
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.moveTo(-9, 0); ctx.lineTo(-5.5, -1.5); ctx.lineTo(-3, 2.2); ctx.lineTo(0, -2.5); ctx.lineTo(2.5, 1.6); ctx.lineTo(5.5, -1.2); ctx.lineTo(9, 0.8);
+            ctx.stroke();
+            ctx.restore();
+            ctx.save();
+            ctx.globalAlpha *= 0.28;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(0, 0, 6.2, -1.2, 1.8); ctx.stroke();
+            ctx.restore();
+        } else if (type === 'core_weapon') {
+            // clear rocket icon (readable at small size): sharp nose + straight body + fins + bright exhaust
+            const metal = ctx.createLinearGradient(-6, -12, 6, 12);
+            metal.addColorStop(0, 'rgba(255,255,255,0.20)');
+            metal.addColorStop(0.55, 'rgba(255,255,255,0.06)');
+            metal.addColorStop(1, 'rgba(0,0,0,0.26)');
+
+            // body + nose
+            ctx.save();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = stroke;
+            ctx.fillStyle = metal;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2.1;
+            ctx.beginPath();
+            ctx.moveTo(0, -11.2);          // nose tip
+            ctx.lineTo(4.2, -6.2);         // right nose
+            ctx.lineTo(4.2, 3.8);          // right body
+            ctx.quadraticCurveTo(4.1, 8.8, 0, 12.8); // bottom curve
+            ctx.quadraticCurveTo(-4.1, 8.8, -4.2, 3.8);
+            ctx.lineTo(-4.2, -6.2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // panel line
+            ctx.globalAlpha *= 0.22;
+            ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+            ctx.lineWidth = 1.0;
+            ctx.beginPath(); ctx.moveTo(0, -6.0); ctx.lineTo(0, 9.6); ctx.stroke();
+            ctx.restore();
+
+            // window (distinct circle)
+            ctx.save();
+            ctx.globalAlpha *= 0.65;
+            ctx.fillStyle = 'rgba(255,255,255,0.16)';
+            ctx.beginPath(); ctx.arc(0, -1.0, 1.35, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = stroke;
+            ctx.globalAlpha *= 0.65;
+            ctx.lineWidth = 1.05;
+            ctx.beginPath(); ctx.arc(0, -1.0, 1.35, 0, Math.PI * 2); ctx.stroke();
+            ctx.restore();
+
+            // fins (make it unmistakably a rocket)
+            ctx.save();
+            ctx.globalAlpha *= 0.26;
+            ctx.fillStyle = stroke;
+            ctx.beginPath(); ctx.moveTo(-4.2, 2.2); ctx.lineTo(-8.0, 6.1); ctx.lineTo(-4.8, 6.7); ctx.closePath(); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(4.2, 2.2); ctx.lineTo(8.0, 6.1); ctx.lineTo(4.8, 6.7); ctx.closePath(); ctx.fill();
+            ctx.restore();
+
+            // exhaust / core glow (bright center + smoke layers)
+            ctx.save();
+            ctx.globalAlpha *= 0.65;
+            const core = ctx.createRadialGradient(0, 12.6, 0.8, 0, 12.6, 8.8);
+            core.addColorStop(0, stroke);
+            core.addColorStop(0.25, 'rgba(255,255,255,0.24)');
+            core.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = core;
+            ctx.beginPath(); ctx.ellipse(0, 13.0, 5.8, 4.2, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha *= 0.55;
+            ctx.beginPath(); ctx.ellipse(0, 15.2, 7.4, 4.8, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        } else {
+            ctx.beginPath();
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
 
     function updateUI() {
@@ -8126,6 +8733,7 @@
             bullets.forEach(b => b.update()); bullets = bullets.filter(b => b.active);
             enemyBullets.forEach(b => b.update()); enemyBullets = enemyBullets.filter(b => b.active);
             enemies.forEach(e => e.update());
+            buildNetGridIfNeeded();
             chainLightnings.forEach(c => c.update()); chainLightnings = chainLightnings.filter(c => c.active);
             networkEffects.forEach(n => n.update()); networkEffects = networkEffects.filter(n => n.active);
             walls.forEach(w => w.update());
