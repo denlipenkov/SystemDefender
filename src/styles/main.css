@@ -103,6 +103,18 @@ body { margin: 0; background-color: var(--ui-bg-deep); color: var(--ui-text); fo
     backdrop-filter: blur(var(--ui-glass-blur)) saturate(var(--ui-glass-saturate));
     -webkit-backdrop-filter: blur(var(--ui-glass-blur)) saturate(var(--ui-glass-saturate));
 }
+.ui-panel::before,
+.ui-glass-panel::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background:
+        radial-gradient(ellipse at 20% 10%, rgba(72, 224, 248, 0.06), transparent 55%),
+        radial-gradient(ellipse at 70% 30%, rgba(57, 255, 140, 0.07), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,0.06), transparent 35%, rgba(0,0,0,0.18));
+    opacity: 0.75;
+}
 .ui-panel--tight { padding: 10px 12px; }
 .ui-panel--roomy { padding: 18px 18px; }
 
@@ -455,6 +467,17 @@ input[name="control-scheme"]:focus { outline-offset: 3px; }
 
 .hud-bottom { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; width: 92%; }
 .panel { position: relative; border: 1px solid var(--ui-border); background: var(--ui-panel-grid), linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 42%), linear-gradient(165deg, rgba(18, 34, 28, 0.86), rgba(6, 14, 10, 0.92)); padding: 7px 10px; border-radius: 0; clip-path: var(--ui-chamfer); box-shadow: var(--ui-elev-1), var(--ui-glow-outer), 0 0 20px var(--ui-glow-soft), var(--ui-depth-highlight), var(--ui-depth-shadow), var(--ui-depth-shadow-deep), var(--ui-depth-rim), var(--ui-rim-double); min-width: 130px; max-width: min(340px, 34vw); backdrop-filter: blur(var(--ui-glass-blur)) saturate(var(--ui-glass-saturate)); -webkit-backdrop-filter: blur(var(--ui-glass-blur)) saturate(var(--ui-glass-saturate)); }
+.panel::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background:
+        radial-gradient(ellipse at 30% 0%, rgba(57, 255, 140, 0.10), transparent 60%),
+        radial-gradient(ellipse at 70% 100%, rgba(230, 176, 74, 0.06), transparent 55%),
+        linear-gradient(180deg, rgba(255,255,255,0.06), transparent 40%, rgba(0,0,0,0.2));
+    opacity: 0.55;
+}
 .panel.ui-tech-corners > * { position: relative; z-index: 3; }
 .panel { color: var(--ui-text); }
 .panel-title { font-size: 9px; color: rgba(120, 240, 170, 0.78); margin-bottom: 6px; border-bottom: 1px solid rgba(50, 200, 110, 0.22); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 0.24em; }
@@ -935,9 +958,18 @@ input[type=range].ui-range-input::-moz-range-track {
     position: relative;
     z-index: 1;
 }
-button { margin-top: 20px; padding: 13px 26px; font-size: clamp(14px, 2.5vw, 20px); background: linear-gradient(165deg, rgba(32, 52, 40, 0.98), rgba(14, 28, 20, 0.96)); color: var(--ui-accent-primary); border: 1px solid var(--ui-border-strong); font-family: 'Share Tech Mono', monospace; cursor: pointer; box-shadow: var(--ui-elev-button), var(--ui-inset-shine-strong), inset 0 -8px 18px rgba(0, 0, 0, 0.35); transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.18s ease, background 0.2s ease, color 0.18s ease, filter 0.2s ease; text-transform: uppercase; letter-spacing: 2px; border-radius: 0; clip-path: var(--ui-chamfer-btn); }
+button { margin-top: 20px; padding: 13px 26px; font-size: clamp(14px, 2.5vw, 20px); background: linear-gradient(165deg, rgba(34, 62, 46, 0.98), rgba(12, 22, 16, 0.96)); color: var(--ui-accent-primary); border: 1px solid var(--ui-border-strong); font-family: 'Share Tech Mono', monospace; cursor: pointer; box-shadow: var(--ui-elev-button), 0 10px 0 rgba(0,0,0,0.22), var(--ui-inset-shine-strong), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -10px 18px rgba(0, 0, 0, 0.38); transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.18s ease, background 0.2s ease, color 0.18s ease, filter 0.2s ease; text-transform: uppercase; letter-spacing: 2px; border-radius: 0; clip-path: var(--ui-chamfer-btn); position: relative; }
 button:hover { background: linear-gradient(165deg, rgba(36, 58, 44, 0.99), rgba(16, 36, 26, 0.97)); color: rgba(255, 252, 255, 0.99); box-shadow: var(--ui-elev-button), 0 8px 32px var(--ui-shadow), 0 0 40px var(--ui-glow), inset 0 0 28px rgba(80, 255, 150, 0.12), inset 0 -6px 16px rgba(0, 0, 0, 0.3); border-color: var(--ui-accent-primary); transform: translateY(-2px); }
-button:active { transform: translateY(0); box-shadow: 0 2px 12px var(--ui-shadow), inset 0 4px 14px rgba(0, 0, 0, 0.35); }
+button:active { transform: translateY(3px); box-shadow: 0 2px 14px var(--ui-shadow), inset 0 4px 16px rgba(0, 0, 0, 0.42); }
+button::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.10), transparent 55%, rgba(0,0,0,0.08));
+    mix-blend-mode: screen;
+    opacity: 0.55;
+}
 button:focus-visible { outline: 2px solid rgba(70, 220, 130, 0.95); outline-offset: 3px; box-shadow: 0 0 0 1px rgba(70, 220, 130, 0.35), var(--ui-elev-button), 0 0 22px var(--ui-glow-soft); }
 
 /* Motion language: reduced-motion support */
@@ -1867,6 +1899,8 @@ input[type=range]::-moz-range-track {
     box-shadow: 0 0 12px var(--ui-glow-soft);
     color: var(--sell-accent, var(--ui-accent-primary));
 }
+.upgrade-sell-icon svg { width: 100%; height: 100%; display: block; }
+.hud-inv-ico svg { width: 18px; height: 18px; display: block; }
 .upgrade-sell-meta {
     font-size: 12px;
     color: var(--ui-muted);

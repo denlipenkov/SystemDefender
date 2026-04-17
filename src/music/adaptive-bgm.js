@@ -163,8 +163,9 @@
                     : '';
                 preferOgg = !!c && c !== 'no';
             } catch (e) { /* ignore */ }
+            // Repo ships mp3 tracks; keep ogg as optional fallback for future.
             const urls = preferOgg
-                ? [assetsBase + '/audio/track1.ogg', assetsBase + '/audio/track1.mp3']
+                ? [assetsBase + '/audio/track1.mp3', assetsBase + '/audio/track1.ogg']
                 : [assetsBase + '/audio/track1.mp3', assetsBase + '/audio/track1.ogg'];
             let decoded = null;
             for (const u of urls) {
